@@ -150,6 +150,7 @@ async function avviaApp(){
     ],
     LABORATORIO: [
       { key:'dashboard', label:'Dashboard lavorazioni', fn: () => renderDashboardLavorazioni(profilo) },
+      { key:'nuovo-lab', label:'+ Nuovo lavoro', fn: () => renderNuovoLavoroLab(profilo) },
       { key:'studi', label:'I miei studi', fn: () => renderIMieiStudiLab(profilo) },
       { key:'listino', label:'Listino prezzi', fn: () => renderListinoPrezzi(profilo) },
       { key:'impostazioni', label:'Impostazioni', fn: () => renderImpostazioni(profilo) },
@@ -182,6 +183,8 @@ async function avviaApp(){
     return;
   }
 
+  window.PROFILO_CORRENTE = profilo;
+
   const navEl = document.getElementById('sidebar-nav');
   navEl.innerHTML = items.map((it,i) => `<button class="nav-btn ${i===0?'active':''}" data-nav-key="${it.key}">${it.label}</button>`).join('');
   navEl.querySelectorAll('[data-nav-key]').forEach((btn,i) => {
@@ -192,6 +195,7 @@ async function avviaApp(){
     };
   });
   items[0].fn();
+  aggiornaBadgeMessaggi(profilo);
 }
 
 /* ---------- ADMIN: SCHEDE LABORATORI / STUDI ---------- */
@@ -1092,6 +1096,131 @@ function apriModaleRiprogramma(jobId, onSalvato){
   };
 }
 
+/* ---------- LABORATORIO: NUOVO LAVORO (per conto di uno studio) ---------- */
+async function renderNuovoLavoroLab(profilo){
+  const content = document.getElementById('content');
+  const { data: collegamenti } = await sb.from('collegamenti').select('studio_id, studi(nome)').eq('laboratorio_id', profilo.laboratorio_id).eq('stato', 'attivo');
+  if(!collegamenti || collegamenti.length === 0){
+    content.innerHTML = `<h1>Nuovo lavoro</h1><p class="lead">Nessuno studio collegato: collegane uno dalla scheda "I miei studi" prima di creare un lavoro.</p>`;
+    return;
+  }
+  content.innerHTML = `
+    <h1>Nuovo lavoro</h1>
+    <p class="lead">Crea un lavoro per conto di uno studio già collegato (es. dopo una telefonata o consegna a mano). Cognome, nome, medico, tipo di lavoro e data sono obbligatori.</p>
+    <div class="card">
+      <div class="form-grid">
+        <div class="field"><label>Studio</label>
+          <select id="nll-studio">${collegamenti.map(c => `<option value="${c.studio_id}">${c.studi.nome}</option>`).join('')}</select>
+        </div>
+        <div class="field"><label>Medico prescrittore</label><select id="nll-medico"></select></div>
+        <div></div>
+      </div>
+      <div class="field" style="margin-top:10px;"><label>Paziente esistente (facoltativo)</label>
+        <select id="nll-paziente-esistente"><option value="">+ Nuovo paziente</option></select>
+      </div>
+      <div class="form-grid" style="margin-top:10px;">
+        <div class="field"><label>Cognome paziente</label><input id="nll-cognome"></div>
+        <div class="field"><label>Nome paziente</label><input id="nll-nome"></div>
+        <div class="field"><label>Data consegna richiesta</label><input id="nll-data" type="date" value="${new Date().toISOString().slice(0,10)}"></div>
+      </div>
+      <div class="form-grid" style="margin-top:10px;">
+        <div class="field"><label>Categoria lavoro</label><select id="nll-macro"></select></div>
+        <div class="field"><label>Tipo di lavoro</label><select id="nll-micro"></select></div>
+        <div class="field"><label>Colore</label><select id="nll-colore"></select></div>
+      </div>
+      <div class="field" style="margin-top:10px;"><label>Note cliniche</label><textarea id="nll-note" rows="3" style="width:100%;border:1px solid var(--line);border-radius:6px;padding:10px;font-family:inherit;"></textarea></div>
+      <div class="field" style="margin-top:10px;"><label>Allegati (foto, scansioni, STL)</label><input id="nll-file" type="file" multiple accept=".jpg,.jpeg,.png,.stl"></div>
+      <button class="btn" id="btn-crea-lavoro-lab" style="margin-top:12px;">Crea lavoro</button>
+      <div class="msg" id="lavoro-lab-msg"></div>
+    </div>
+  `;
+
+  let macroCorrenti = [];
+  async function caricaImpostazioniProprie(){
+    const { data: macros } = await sb.from('tipi_lavoro_macro').select('id, nome, tipi_lavoro_micro(nome)').eq('laboratorio_id', profilo.laboratorio_id).order('nome');
+    const { data: coloriDb } = await sb.from('colori').select('nome').eq('laboratorio_id', profilo.laboratorio_id).order('nome');
+    macroCorrenti = macros || [];
+    const macroSel = document.getElementById('nll-macro');
+    macroSel.innerHTML = macroCorrenti.length ? macroCorrenti.map(m => `<option value="${m.id}">${m.nome}</option>`).join('') : `<option value="">Nessuna categoria impostata</option>`;
+    aggiornaMicroLab();
+    document.getElementById('nll-colore').innerHTML = (coloriDb && coloriDb.length) ? coloriDb.map(c => `<option>${c.nome}</option>`).join('') : `<option value="">Nessun colore impostato</option>`;
+  }
+  function aggiornaMicroLab(){
+    const m = macroCorrenti.find(x => x.id === document.getElementById('nll-macro').value);
+    document.getElementById('nll-micro').innerHTML = (m && m.tipi_lavoro_micro && m.tipi_lavoro_micro.length) ? m.tipi_lavoro_micro.map(mi => `<option>${mi.nome}</option>`).join('') : `<option value="">Nessun tipo impostato</option>`;
+  }
+  document.getElementById('nll-macro').addEventListener('change', aggiornaMicroLab);
+  await caricaImpostazioniProprie();
+
+  let pazientiCorrenti = [];
+  async function caricaDatiStudio(studioId){
+    const { data: medici } = await sb.from('medici').select('id, nome').eq('studio_id', studioId).eq('attivo', true);
+    document.getElementById('nll-medico').innerHTML = (medici && medici.length) ? medici.map(m => `<option value="${m.id}">${m.nome}</option>`).join('') : `<option value="">Nessun medico registrato in questo studio</option>`;
+
+    const { data: pazienti } = await sb.from('pazienti').select('id, cognome, nome').eq('studio_id', studioId).order('cognome');
+    pazientiCorrenti = pazienti || [];
+    const pazSel = document.getElementById('nll-paziente-esistente');
+    pazSel.innerHTML = `<option value="">+ Nuovo paziente</option>` + pazientiCorrenti.map(p => `<option value="${p.id}">${p.cognome} ${p.nome}</option>`).join('');
+  }
+  document.getElementById('nll-studio').addEventListener('change', (e) => caricaDatiStudio(e.target.value));
+  await caricaDatiStudio(collegamenti[0].studio_id);
+
+  document.getElementById('nll-paziente-esistente').onchange = () => {
+    const pazSel = document.getElementById('nll-paziente-esistente');
+    const p = pazientiCorrenti.find(x => x.id === pazSel.value);
+    const cogInput = document.getElementById('nll-cognome');
+    const nomeInput = document.getElementById('nll-nome');
+    if(p){ cogInput.value = p.cognome; nomeInput.value = p.nome; cogInput.disabled = true; nomeInput.disabled = true; }
+    else { cogInput.value = ''; nomeInput.value = ''; cogInput.disabled = false; nomeInput.disabled = false; }
+  };
+
+  document.getElementById('btn-crea-lavoro-lab').onclick = async () => {
+    const studio_id = document.getElementById('nll-studio').value;
+    const medico_id = document.getElementById('nll-medico').value;
+    const cognome_paziente = document.getElementById('nll-cognome').value.trim();
+    const nome_paziente = document.getElementById('nll-nome').value.trim();
+    const data_consegna_richiesta = document.getElementById('nll-data').value;
+    const macroSel = document.getElementById('nll-macro');
+    const tipo_macro = macroSel.selectedOptions[0]?.textContent || '';
+    const tipo_micro = document.getElementById('nll-micro').value;
+    const colore = document.getElementById('nll-colore').value;
+    const note = document.getElementById('nll-note').value.trim();
+
+    if(!cognome_paziente || !nome_paziente || !medico_id || !data_consegna_richiesta || !tipo_macro || !tipo_micro || !colore){
+      mostraMsg('lavoro-lab-msg', 'Compila tutti i campi obbligatori.', 'error'); return;
+    }
+
+    const { data: studio } = await sb.from('studi').select('sigla').eq('id', studio_id).single();
+    const anno = new Date().getFullYear();
+    const { count } = await sb.from('lavorazioni').select('id', { count: 'exact', head: true }).eq('studio_id', studio_id).like('id', `${studio.sigla}-${anno}-%`);
+    const progressivo = String((count || 0) + 1).padStart(4, '0');
+    const id = `${studio.sigla}-${anno}-${progressivo}`;
+
+    const paziente_id = document.getElementById('nll-paziente-esistente').value || null;
+    const { error } = await sb.from('lavorazioni').insert({
+      id, studio_id, laboratorio_id: profilo.laboratorio_id, medico_id, paziente_id,
+      cognome_paziente, nome_paziente, tipo_macro, tipo_micro, colore, note,
+      data_consegna_richiesta, consegna_stato: 'accettata', data_consegna_confermata: data_consegna_richiesta, stato_lab: ''
+    });
+    if(error){ mostraMsg('lavoro-lab-msg', 'Errore: ' + error.message, 'error'); return; }
+
+    const files = Array.from(document.getElementById('nll-file').files);
+    const { data: { session } } = await sb.auth.getSession();
+    for(const file of files){
+      const path = `${id}/${Date.now()}_${file.name}`;
+      const { error: upErr } = await sb.storage.from('allegati').upload(path, file);
+      if(!upErr) await sb.from('allegati').insert({ lavorazione_id: id, nome_file: file.name, storage_path: path, caricato_da: session.user.id });
+    }
+
+    mostraMsg('lavoro-lab-msg', `Lavoro ${id} creato.`, 'ok');
+    document.getElementById('nll-paziente-esistente').value = '';
+    document.getElementById('nll-cognome').disabled = false;
+    document.getElementById('nll-nome').disabled = false;
+    document.getElementById('nll-file').value = '';
+    ['nll-cognome','nll-nome','nll-note'].forEach(idc => document.getElementById(idc).value = '');
+  };
+}
+
 /* ---------- LABORATORIO: DASHBOARD LAVORAZIONI ---------- */
 async function apriModaleMateriale(jobId, laboratorioId, onSalvato){
   const { data: catalogo } = await sb.from('materiali_catalogo').select('nome').eq('laboratorio_id', laboratorioId).order('nome');
@@ -1897,8 +2026,9 @@ async function ottieniCanale(tipo, laboratorioId, studioId, medicoId){
   let query = sb.from('canali_chat').select('id').eq('tipo', tipo).eq('laboratorio_id', laboratorioId);
   query = studioId ? query.eq('studio_id', studioId) : query.is('studio_id', null);
   query = medicoId ? query.eq('medico_id', medicoId) : query.is('medico_id', null);
-  const { data } = await query.maybeSingle();
-  if(data) return data.id;
+  const { data, error: selErr } = await query.order('id').limit(1);
+  if(selErr) console.error(selErr);
+  if(data && data.length > 0) return data[0].id;
   const { data: nuovo, error } = await sb.from('canali_chat')
     .insert({ tipo, laboratorio_id: laboratorioId, studio_id: studioId || null, medico_id: medicoId || null })
     .select('id').single();
@@ -1908,6 +2038,10 @@ async function ottieniCanale(tipo, laboratorioId, studioId, medicoId){
 
 async function renderChatThread(canaleId, mittenteRuolo, container){
   if(!canaleId){ container.innerHTML = `<p class="empty">Impossibile aprire questo canale.</p>`; return; }
+
+  const campoLettura = mittenteRuolo === 'LABORATORIO' ? 'letto_da_lab' : 'letto_da_controparte';
+  await sb.from('messaggi').update({ [campoLettura]: true }).eq('canale_id', canaleId).eq(campoLettura, false);
+
   const { data: messaggi } = await sb.from('messaggi').select('*').eq('canale_id', canaleId).order('created_at');
   container.innerHTML = `
     <div style="max-height:400px;overflow-y:auto;border:1px solid var(--line);border-radius:8px;padding:14px;margin-bottom:12px;background:#fff;">
@@ -1926,13 +2060,41 @@ async function renderChatThread(canaleId, mittenteRuolo, container){
     const testo = input.value.trim();
     if(!testo) return;
     const { data: { session } } = await sb.auth.getSession();
-    const { error } = await sb.from('messaggi').insert({ canale_id: canaleId, mittente_id: session.user.id, mittente_ruolo: mittenteRuolo, testo });
+    const isLab = mittenteRuolo === 'LABORATORIO';
+    const { error } = await sb.from('messaggi').insert({
+      canale_id: canaleId, mittente_id: session.user.id, mittente_ruolo: mittenteRuolo, testo,
+      letto_da_lab: isLab, letto_da_controparte: !isLab
+    });
     if(error){ alert('Errore: ' + error.message); return; }
     input.value = '';
     renderChatThread(canaleId, mittenteRuolo, container);
   };
   document.getElementById('chat-invia').onclick = invia;
   document.getElementById('chat-input').addEventListener('keydown', e => { if(e.key === 'Enter') invia(); });
+  aggiornaBadgeMessaggi(window.PROFILO_CORRENTE);
+}
+
+async function aggiornaBadgeMessaggi(profilo){
+  if(!profilo) return;
+  const btn = document.querySelector('[data-nav-key="messaggi"]');
+  if(!btn) return;
+  let filtroCanale = null, campo = null;
+  if(profilo.ruolo === 'LABORATORIO'){ filtroCanale = { laboratorio_id: profilo.laboratorio_id }; campo = 'letto_da_lab'; }
+  else if(profilo.ruolo === 'STUDIO'){ filtroCanale = { studio_id: profilo.studio_id }; campo = 'letto_da_controparte'; }
+  else if(profilo.ruolo === 'MEDICO'){ filtroCanale = { medico_id: profilo.medico_id }; campo = 'letto_da_controparte'; }
+  else return;
+
+  const chiave = Object.keys(filtroCanale)[0];
+  const { data: canali } = await sb.from('canali_chat').select('id').eq(chiave, filtroCanale[chiave]);
+  const ids = (canali || []).map(c => c.id);
+  let nonLetti = 0;
+  if(ids.length){
+    const { count } = await sb.from('messaggi').select('id', { count: 'exact', head: true }).in('canale_id', ids).eq(campo, false);
+    nonLetti = count || 0;
+  }
+  btn.innerHTML = nonLetti > 0
+    ? `Messaggi <span style="background:var(--block);color:#fff;border-radius:10px;padding:1px 7px;font-size:11px;margin-left:6px;">${nonLetti}</span>`
+    : `Messaggi`;
 }
 
 async function renderMessaggiLab(profilo){
