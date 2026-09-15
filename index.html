@@ -41,7 +41,7 @@
   p.lead{color:var(--muted);font-size:13.5px;margin:0 0 20px 0;}
   .card{background:#fff;border:1px solid var(--line);border-radius:8px;padding:20px 22px;margin-bottom:18px;}
   .form-grid{display:grid;grid-template-columns:1fr 1fr auto;gap:12px;align-items:end;}
-  table{width:100%;border-collapse:collapse;background:#fff;border:1px solid var(--line);border-radius:8px;overflow:hidden;font-size:13.5px;}
+  table{width:100%;border-collapse:collapse;background:#fff;border:1px solid var(--line);border-radius:8px;font-size:13.5px;}
   th{text-align:left;font-size:11px;text-transform:uppercase;color:var(--muted);background:#f7f8f8;padding:9px 12px;border-bottom:1px solid var(--line);}
   td{padding:10px 12px;border-bottom:1px solid var(--line);}
   tr:last-child td{border-bottom:none;}
@@ -969,7 +969,7 @@ async function caricaMieiLavori(profilo){
 
   const STATO_LABEL = { '': 'Da iniziare', in_lavorazione: 'In lavorazione', in_ritardo: 'In ritardo', da_rifare: 'Da rifare', in_consegna: 'In consegna' };
   el.innerHTML = `
-    <table><thead><tr><th>ID</th><th>Paziente</th><th>Medico</th><th>Laboratorio</th><th>Lavoro</th><th>Consegna</th><th>Stato</th><th>Azioni</th><th>Documenti</th></tr></thead><tbody>
+    <table><thead><tr><th>ID</th><th>Paziente</th><th>Medico</th><th>Laboratorio</th><th>Lavoro</th><th>Consegna</th><th>Stato</th><th>Azioni</th><th>Documenti</th><th>Chat</th></tr></thead><tbody>
       ${data.map(j => {
         let cellaConsegna;
         if(j.consegna_stato === 'riprogrammata'){
@@ -994,11 +994,19 @@ async function caricaMieiLavori(profilo){
                 ? `<button class="btn secondary" data-consegna-ok="${j.id}">Segna consegnato</button><br><button class="btn danger" data-segnala="${j.id}:${j.laboratorio_id}" style="margin-top:4px;">Problematico</button>`
                 : `<button class="btn danger" data-segnala="${j.id}:${j.laboratorio_id}">Problematico</button>`)}</td>
         <td style="max-width:220px;">${docButtonsHtml(j.id)}</td>
+        <td><button class="btn secondary" data-chat-lavoro="${j.id}">💬 Chat</button></td>
       </tr>`;
       }).join('')}
     </tbody></table>
   `;
   bindDocButtons(el);
+  el.querySelectorAll('[data-chat-lavoro]').forEach(btn => {
+    btn.onclick = () => {
+      const navEl = document.getElementById('sidebar-nav');
+      navEl.querySelectorAll('[data-nav-key]').forEach(b => b.classList.toggle('active', b.dataset.navKey === 'messaggi'));
+      renderMessaggiStudio(profilo, `Riguardo alla pratica ${btn.dataset.chatLavoro}: `);
+    };
+  });
   el.querySelectorAll('[data-vista]').forEach(btn => {
     btn.onclick = async () => {
       await sb.from('lavorazioni').update({ riprogrammazione_vista: true }).eq('id', btn.dataset.vista);
@@ -1650,18 +1658,39 @@ async function apriDocumento(tipo, jobId){
 }
 
 function docButtonsHtml(jobId){
-  return Object.keys(TITOLI_DOC).map(tipo =>
-    `<button class="btn secondary" data-doc="${tipo}:${jobId}" style="margin:2px 3px 2px 0;font-size:11px;padding:4px 8px;">${TITOLI_DOC[tipo]}</button>`
-  ).join('');
+  const menuId = `doc-menu-${jobId}`;
+  return `
+    <div style="position:relative;display:inline-block;">
+      <button class="btn secondary" data-doc-toggle="${menuId}" style="font-size:11px;padding:4px 8px;">📄 Documenti ▾</button>
+      <div id="${menuId}" style="display:none;position:absolute;top:100%;left:0;margin-top:4px;background:#fff;border:1px solid var(--line);border-radius:8px;padding:8px;z-index:50;white-space:nowrap;box-shadow:0 4px 14px rgba(0,0,0,.12);">
+        ${Object.keys(TITOLI_DOC).map(tipo =>
+          `<button class="btn secondary" data-doc="${tipo}:${jobId}" style="margin:0 4px 0 0;font-size:11px;padding:4px 8px;">${TITOLI_DOC[tipo]}</button>`
+        ).join('')}
+      </div>
+    </div>
+  `;
 }
 function bindDocButtons(container){
+  container.querySelectorAll('[data-doc-toggle]').forEach(btn => {
+    btn.onclick = (e) => {
+      e.stopPropagation();
+      const menu = document.getElementById(btn.dataset.docToggle);
+      const eraAperto = menu.style.display === 'block';
+      document.querySelectorAll('[id^="doc-menu-"]').forEach(m => m.style.display = 'none');
+      menu.style.display = eraAperto ? 'none' : 'block';
+    };
+  });
   container.querySelectorAll('[data-doc]').forEach(btn => {
     btn.onclick = () => {
       const [tipo, jobId] = btn.dataset.doc.split(':');
       apriDocumento(tipo, jobId);
+      document.querySelectorAll('[id^="doc-menu-"]').forEach(m => m.style.display = 'none');
     };
   });
 }
+document.addEventListener('click', () => {
+  document.querySelectorAll('[id^="doc-menu-"]').forEach(m => m.style.display = 'none');
+});
 
 /* ---------- STUDIO: REGISTRO PAZIENTI ---------- */
 async function renderPazienti(profilo){
@@ -1936,7 +1965,7 @@ async function renderMessaggiLab(profilo){
   });
 }
 
-async function renderMessaggiStudio(profilo){
+async function renderMessaggiStudio(profilo, prefill){
   const content = document.getElementById('content');
   const { data: collegamenti } = await sb.from('collegamenti').select('laboratorio_id, laboratori(nome)').eq('studio_id', profilo.studio_id).eq('stato','attivo');
   if(!collegamenti || collegamenti.length === 0){ content.innerHTML = `<h1>Messaggi</h1><p class="lead">Nessun laboratorio collegato.</p>`; return; }
@@ -1947,7 +1976,11 @@ async function renderMessaggiStudio(profilo){
   `;
   async function apri(labId){
     const canaleId = await ottieniCanale('studio', labId, profilo.studio_id, null);
-    renderChatThread(canaleId, 'STUDIO', document.getElementById('chat-container'));
+    await renderChatThread(canaleId, 'STUDIO', document.getElementById('chat-container'));
+    if(prefill){
+      const input = document.getElementById('chat-input');
+      if(input) input.value = prefill;
+    }
   }
   const sel = document.getElementById('chat-lab-studio');
   if(sel) sel.onchange = () => apri(sel.value);
