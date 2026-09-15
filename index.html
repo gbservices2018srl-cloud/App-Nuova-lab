@@ -150,7 +150,6 @@ async function avviaApp(){
     ],
     LABORATORIO: [
       { key:'dashboard', label:'Dashboard lavorazioni', fn: () => renderDashboardLavorazioni(profilo) },
-      { key:'nuovo-lab', label:'+ Nuovo lavoro', fn: () => renderNuovoLavoroLab(profilo) },
       { key:'studi', label:'I miei studi', fn: () => renderIMieiStudiLab(profilo) },
       { key:'listino', label:'Listino prezzi', fn: () => renderListinoPrezzi(profilo) },
       { key:'impostazioni', label:'Impostazioni', fn: () => renderImpostazioni(profilo) },
@@ -1097,14 +1096,17 @@ function apriModaleRiprogramma(jobId, onSalvato){
 }
 
 /* ---------- LABORATORIO: NUOVO LAVORO (per conto di uno studio) ---------- */
-async function renderNuovoLavoroLab(profilo){
+async function renderNuovoLavoroLab(profilo, daDashboard){
   const content = document.getElementById('content');
+  const tornaHtml = daDashboard ? `<button class="btn secondary" id="btn-torna-dashboard" style="margin-bottom:14px;">← Torna alla dashboard</button>` : '';
   const { data: collegamenti } = await sb.from('collegamenti').select('studio_id, studi(nome)').eq('laboratorio_id', profilo.laboratorio_id).eq('stato', 'attivo');
   if(!collegamenti || collegamenti.length === 0){
-    content.innerHTML = `<h1>Nuovo lavoro</h1><p class="lead">Nessuno studio collegato: collegane uno dalla scheda "I miei studi" prima di creare un lavoro.</p>`;
+    content.innerHTML = `${tornaHtml}<h1>Nuovo lavoro</h1><p class="lead">Nessuno studio collegato: collegane uno dalla scheda "I miei studi" prima di creare un lavoro.</p>`;
+    if(daDashboard) document.getElementById('btn-torna-dashboard').onclick = () => renderDashboardLavorazioni(profilo);
     return;
   }
   content.innerHTML = `
+    ${tornaHtml}
     <h1>Nuovo lavoro</h1>
     <p class="lead">Crea un lavoro per conto di uno studio già collegato (es. dopo una telefonata o consegna a mano). Cognome, nome, medico, tipo di lavoro e data sono obbligatori.</p>
     <div class="card">
@@ -1134,6 +1136,7 @@ async function renderNuovoLavoroLab(profilo){
       <div class="msg" id="lavoro-lab-msg"></div>
     </div>
   `;
+  if(daDashboard) document.getElementById('btn-torna-dashboard').onclick = () => renderDashboardLavorazioni(profilo);
 
   let macroCorrenti = [];
   async function caricaImpostazioniProprie(){
@@ -1257,10 +1260,32 @@ const STATO_LAB_LABEL = { '': 'Da iniziare', in_lavorazione: 'In lavorazione', i
 async function renderDashboardLavorazioni(profilo){
   const content = document.getElementById('content');
   content.innerHTML = `
-    <h1>Dashboard lavorazioni</h1>
-    <p class="lead">Le pratiche inviate dagli studi collegati. Per tutela della privacy, qui compare solo l'ID pratica.</p>
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+      <div>
+        <h1>Dashboard lavorazioni</h1>
+        <p class="lead">Le pratiche inviate dagli studi collegati. Per tutela della privacy, qui compare solo l'ID pratica.</p>
+      </div>
+      <button class="btn" id="btn-nuovo-lavoro-lab">+ Nuovo lavoro</button>
+    </div>
+    <div id="banner-messaggi-lab"></div>
     <div id="lista-lavorazioni-lab"><p class="empty">Caricamento…</p></div>
   `;
+  document.getElementById('btn-nuovo-lavoro-lab').onclick = () => renderNuovoLavoroLab(profilo, true);
+
+  const nonLetti = await contaMessaggiNonLetti(profilo);
+  if(nonLetti > 0){
+    document.getElementById('banner-messaggi-lab').innerHTML = `
+      <div style="background:var(--block);color:#fff;border-radius:8px;padding:12px 16px;margin:14px 0;display:flex;justify-content:space-between;align-items:center;">
+        <strong>✉ Hai ${nonLetti} messagg${nonLetti===1?'io':'i'} da leggere</strong>
+        <button class="btn secondary" id="btn-vai-messaggi-lab" style="background:#fff;">Vai ai messaggi</button>
+      </div>
+    `;
+    document.getElementById('btn-vai-messaggi-lab').onclick = () => {
+      document.querySelectorAll('[data-nav-key]').forEach(b => b.classList.toggle('active', b.dataset.navKey === 'messaggi'));
+      renderMessaggiLab(profilo);
+    };
+  }
+
   caricaLavorazioniLab(profilo);
 }
 
@@ -2074,24 +2099,27 @@ async function renderChatThread(canaleId, mittenteRuolo, container){
   aggiornaBadgeMessaggi(window.PROFILO_CORRENTE);
 }
 
-async function aggiornaBadgeMessaggi(profilo){
-  if(!profilo) return;
-  const btn = document.querySelector('[data-nav-key="messaggi"]');
-  if(!btn) return;
+async function contaMessaggiNonLetti(profilo){
+  if(!profilo) return 0;
   let filtroCanale = null, campo = null;
   if(profilo.ruolo === 'LABORATORIO'){ filtroCanale = { laboratorio_id: profilo.laboratorio_id }; campo = 'letto_da_lab'; }
   else if(profilo.ruolo === 'STUDIO'){ filtroCanale = { studio_id: profilo.studio_id }; campo = 'letto_da_controparte'; }
   else if(profilo.ruolo === 'MEDICO'){ filtroCanale = { medico_id: profilo.medico_id }; campo = 'letto_da_controparte'; }
-  else return;
+  else return 0;
 
   const chiave = Object.keys(filtroCanale)[0];
   const { data: canali } = await sb.from('canali_chat').select('id').eq(chiave, filtroCanale[chiave]);
   const ids = (canali || []).map(c => c.id);
-  let nonLetti = 0;
-  if(ids.length){
-    const { count } = await sb.from('messaggi').select('id', { count: 'exact', head: true }).in('canale_id', ids).eq(campo, false);
-    nonLetti = count || 0;
-  }
+  if(!ids.length) return 0;
+  const { count } = await sb.from('messaggi').select('id', { count: 'exact', head: true }).in('canale_id', ids).eq(campo, false);
+  return count || 0;
+}
+
+async function aggiornaBadgeMessaggi(profilo){
+  if(!profilo) return;
+  const btn = document.querySelector('[data-nav-key="messaggi"]');
+  if(!btn) return;
+  const nonLetti = await contaMessaggiNonLetti(profilo);
   btn.innerHTML = nonLetti > 0
     ? `Messaggi <span style="background:var(--block);color:#fff;border-radius:10px;padding:1px 7px;font-size:11px;margin-left:6px;">${nonLetti}</span>`
     : `Messaggi`;
