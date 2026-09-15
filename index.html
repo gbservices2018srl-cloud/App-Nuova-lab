@@ -857,6 +857,7 @@ async function renderNuovoLavoro(profilo){
         <div class="field"><label>Colore</label><select id="nl-colore"></select></div>
       </div>
       <div class="field" style="margin-top:10px;"><label>Note cliniche</label><textarea id="nl-note" rows="3" style="width:100%;border:1px solid var(--line);border-radius:6px;padding:10px;font-family:inherit;"></textarea></div>
+      <div class="field" style="margin-top:10px;"><label>Allegati (foto, scansioni, STL)</label><input id="nl-file" type="file" multiple accept=".jpg,.jpeg,.png,.stl"></div>
       <button class="btn" id="btn-crea-lavoro" style="margin-top:12px;">Crea lavoro e invia al laboratorio</button>
       <div class="msg" id="lavoro-msg"></div>
     </div>
@@ -921,10 +922,21 @@ async function renderNuovoLavoro(profilo){
       data_consegna_richiesta, consegna_stato: 'in_attesa', stato_lab: ''
     });
     if(error){ mostraMsg('lavoro-msg', 'Errore: ' + error.message, 'error'); return; }
+
+    const files = Array.from(document.getElementById('nl-file').files);
+    const { data: { session } } = await sb.auth.getSession();
+    for(const file of files){
+      const path = `${id}/${Date.now()}_${file.name}`;
+      const { error: upErr } = await sb.storage.from('allegati').upload(path, file);
+      if(upErr){ mostraMsg('lavoro-msg', `Lavoro creato, ma errore caricando ${file.name}: ${upErr.message}`, 'error'); continue; }
+      await sb.from('allegati').insert({ lavorazione_id: id, nome_file: file.name, storage_path: path, caricato_da: session.user.id });
+    }
+
     mostraMsg('lavoro-msg', `Lavoro ${id} creato e inviato al laboratorio.`, 'ok');
     document.getElementById('nl-paziente-esistente').value = '';
     document.getElementById('nl-cognome').disabled = false;
     document.getElementById('nl-nome').disabled = false;
+    document.getElementById('nl-file').value = '';
     ['nl-cognome','nl-nome','nl-data','nl-macro','nl-micro','nl-colore','nl-note'].forEach(idc => document.getElementById(idc).value = '');
   };
 }
@@ -1119,7 +1131,7 @@ async function caricaLavorazioniLab(profilo){
   const el = document.getElementById('lista-lavorazioni-lab');
   const { data: odontotecniciDb } = await sb.from('odontotecnici').select('nome').eq('laboratorio_id', profilo.laboratorio_id).order('nome');
   const { data, error } = await sb.from('lavorazioni')
-    .select('id, tipo_macro, tipo_micro, colore, data_consegna_richiesta, data_consegna_confermata, consegna_stato, stato_lab, odontotecnico, studi(nome), materiali_lavorazione(materiale, lotto), segnalazioni(tipo, dettaglio, created_at)')
+    .select('id, tipo_macro, tipo_micro, colore, data_consegna_richiesta, data_consegna_confermata, consegna_stato, stato_lab, odontotecnico, studi(nome), materiali_lavorazione(materiale, lotto), segnalazioni(tipo, dettaglio, created_at), allegati(id, nome_file, storage_path, scaricato_il)')
     .eq('laboratorio_id', profilo.laboratorio_id)
     .is('stato_studio', null)
     .order('data_consegna_richiesta', { ascending: true });
@@ -1127,7 +1139,7 @@ async function caricaLavorazioniLab(profilo){
   if(!data || data.length === 0){ el.innerHTML = `<p class="empty">Nessuna lavorazione in corso.</p>`; return; }
 
   el.innerHTML = `
-    <table><thead><tr><th>ID pratica</th><th>Studio</th><th>Lavoro</th><th>Colore</th><th>Consegna</th><th>Segnalazione</th><th>Stato</th><th>Odontotecnico</th><th>Materiali</th><th>Documenti</th></tr></thead><tbody>
+    <table><thead><tr><th>ID pratica</th><th>Studio</th><th>Lavoro</th><th>Colore</th><th>Consegna</th><th>Allegati</th><th>Segnalazione</th><th>Stato</th><th>Odontotecnico</th><th>Materiali</th><th>Documenti</th></tr></thead><tbody>
       ${data.map(j => {
         const ultimaSeg = (j.segnalazioni && j.segnalazioni.length) ? j.segnalazioni[j.segnalazioni.length-1] : null;
         let cellaConsegna;
@@ -1143,6 +1155,12 @@ async function caricaLavorazioniLab(profilo){
           <td>${j.tipo_macro} › ${j.tipo_micro}</td>
           <td>${j.colore}</td>
           <td>${cellaConsegna}</td>
+          <td style="max-width:160px;">
+            ${(j.allegati || []).map(a => a.storage_path
+              ? `<div><button class="btn secondary" data-scarica-allegato="${a.id}:${a.storage_path}" style="font-size:11px;padding:3px 7px;margin-bottom:3px;">⬇ ${a.nome_file}</button></div>`
+              : `<div style="font-size:11px;color:var(--muted);">${a.nome_file} ✓ scaricato</div>`
+            ).join('') || '<span style="color:var(--muted);font-size:12px;">—</span>'}
+          </td>
           <td style="max-width:180px;">${ultimaSeg ? `<strong style="font-size:12px;">${ultimaSeg.tipo}</strong><div style="font-size:11px;color:var(--muted);white-space:normal;">${ultimaSeg.dettaglio}</div>` : '—'}</td>
           <td><select class="inline-text" data-set-stato="${j.id}">
               ${Object.entries(STATO_LAB_LABEL).map(([k,l]) => `<option value="${k}" ${j.stato_lab===k?'selected':''}>${l}</option>`).join('')}
@@ -1162,6 +1180,19 @@ async function caricaLavorazioniLab(profilo){
   `;
   bindDocButtons(el);
 
+  el.querySelectorAll('[data-scarica-allegato]').forEach(btn => {
+    btn.onclick = async () => {
+      const [allegatoId, path] = btn.dataset.scaricaAllegato.split(':');
+      const { data, error } = await sb.storage.from('allegati').createSignedUrl(path, 60);
+      if(error){ alert('Errore: ' + error.message); return; }
+      window.open(data.signedUrl, '_blank');
+      setTimeout(async () => {
+        await sb.storage.from('allegati').remove([path]);
+        await sb.from('allegati').update({ storage_path: null, scaricato_il: new Date().toISOString().slice(0,10) }).eq('id', allegatoId);
+        caricaLavorazioniLab(profilo);
+      }, 500);
+    };
+  });
   el.querySelectorAll('[data-set-odt]').forEach(sel => {
     sel.onchange = async () => {
       const { error } = await sb.from('lavorazioni').update({ odontotecnico: sel.value || null }).eq('id', sel.dataset.setOdt);
