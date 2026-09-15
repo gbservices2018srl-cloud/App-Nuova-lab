@@ -1,0 +1,1950 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nuovalab</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="config.js"></script>
+<style>
+  :root{
+    --ink:#3d3d42; --bg:#f7f6f2; --card:#ffffff; --line:#e2e0da; --muted:#7c7a80;
+    --accent:#f6c647; --accent-dark:#c99a1f; --block:#b23a2e; --block-soft:#f8e6e3;
+    --ok:#4c7a5b; --ok-soft:#e4efe8;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;min-height:100%;background:var(--bg);font-family:-apple-system,'Segoe UI',Arial,sans-serif;color:var(--ink);}
+  .box{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:32px 28px;width:360px;max-width:100%;}
+  #login-screen{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;}
+  .box h1{font-size:19px;margin:0 0 4px 0;}
+  .box p.sub{font-size:13px;color:var(--muted);margin:0 0 22px 0;}
+  .field{margin-bottom:14px;display:flex;flex-direction:column;gap:5px;}
+  .field label{font-size:12px;color:var(--muted);}
+  .field input,.field select{border:1px solid var(--line);border-radius:6px;padding:10px 12px;font-size:14px;font-family:inherit;}
+  .btn{all:unset;cursor:pointer;background:var(--accent);color:var(--ink);font-weight:700;
+    padding:9px 16px;border-radius:7px;font-size:13.5px;text-align:center;display:inline-block;}
+  .btn:hover{background:var(--accent-dark);color:#fff;}
+  .btn.block{display:block;width:100%;margin-top:6px;}
+  .btn.secondary{background:#eef0f0;color:var(--ink);}
+  .btn.secondary:hover{background:#e2e5e5;}
+  .btn.danger{background:var(--block-soft);color:var(--block);}
+  .btn.danger:hover{background:var(--block);color:#fff;}
+  .msg{font-size:13px;margin-top:14px;padding:10px 12px;border-radius:7px;display:none;}
+  .msg.error{display:block;background:var(--block-soft);color:var(--block);}
+  .msg.ok{display:block;background:var(--ok-soft);color:var(--ok);}
+
+  #app-screen{display:none;}
+  .topbar{height:58px;background:#fff;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:0 24px;}
+  .topbar .brand{font-weight:700;}
+  .content{padding:26px 28px;max-width:900px;margin:0 auto;}
+  h1{font-size:21px;margin:0 0 4px 0;}
+  p.lead{color:var(--muted);font-size:13.5px;margin:0 0 20px 0;}
+  .card{background:#fff;border:1px solid var(--line);border-radius:8px;padding:20px 22px;margin-bottom:18px;}
+  .form-grid{display:grid;grid-template-columns:1fr 1fr auto;gap:12px;align-items:end;}
+  table{width:100%;border-collapse:collapse;background:#fff;border:1px solid var(--line);border-radius:8px;overflow:hidden;font-size:13.5px;}
+  th{text-align:left;font-size:11px;text-transform:uppercase;color:var(--muted);background:#f7f8f8;padding:9px 12px;border-bottom:1px solid var(--line);}
+  td{padding:10px 12px;border-bottom:1px solid var(--line);}
+  tr:last-child td{border-bottom:none;}
+  .badge{display:inline-flex;align-items:center;gap:6px;padding:3px 9px;border-radius:20px;font-size:11.5px;font-weight:600;}
+  .badge .dot{width:7px;height:7px;border-radius:50%;}
+  .badge.ok{background:var(--ok-soft);color:var(--ok);} .badge.ok .dot{background:var(--ok);}
+  .badge.off{background:#eef0f0;color:var(--muted);} .badge.off .dot{background:var(--muted);}
+  .inline-num{width:70px;border:1px solid var(--line);border-radius:6px;padding:5px 7px;font-size:13px;}
+  .inline-text{width:100%;min-width:120px;border:1px solid var(--line);border-radius:6px;padding:5px 7px;font-size:13px;font-family:inherit;background:#fbfbfa;}
+  .inline-text:hover{border-color:var(--accent-dark);}
+  .inline-text:focus{border-color:var(--accent-dark);background:#fff;outline:none;}
+  .empty{color:var(--muted);font-size:13px;text-align:center;padding:20px;}
+  .admin-tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:20px;}
+  .tab-btn{all:unset;cursor:pointer;padding:9px 16px;font-size:13.5px;color:var(--muted);border-bottom:2px solid transparent;}
+  .tab-btn.active{color:var(--ink);font-weight:700;border-bottom:2px solid var(--accent-dark);}
+  .sidebar{width:220px;background:#fff;border-right:1px solid var(--line);padding:20px 16px;flex-shrink:0;}
+  .sidebar .brand{font-weight:700;font-size:16px;}
+  .nav-btn{all:unset;cursor:pointer;display:block;width:100%;box-sizing:border-box;padding:9px 12px;font-size:13.5px;color:var(--ink);border-radius:7px;margin-bottom:3px;}
+  .nav-btn:hover{background:#f2f0ea;}
+  .nav-btn.active{background:var(--accent);font-weight:700;}
+  #print-area{display:none;}
+  @media print{
+    body > *:not(#print-area){display:none !important;}
+    #print-area{display:block !important;padding:20px;max-width:720px;margin:0 auto;font-family:Arial,Helvetica,sans-serif;color:#26272b;}
+  }
+</style>
+</head>
+<body>
+
+<div id="login-screen">
+  <div class="box">
+    <h1>Nuovalab</h1>
+    <p class="sub">Accedi con le tue credenziali.</p>
+    <div class="field"><label>Email</label><input type="email" id="email"></div>
+    <div class="field"><label>Password</label><input type="password" id="password"></div>
+    <button class="btn block" id="btn-login">Accedi</button>
+    <div class="msg" id="login-msg"></div>
+  </div>
+</div>
+
+<div id="app-screen" style="display:flex;min-height:100vh;">
+  <div class="sidebar">
+    <div class="brand">Nuovalab</div>
+    <div class="sub" style="font-size:11.5px;color:var(--muted);margin-bottom:16px;" id="ruolo-corrente">Admin</div>
+    <div id="sidebar-nav"></div>
+  </div>
+  <div class="main" style="flex:1;">
+    <div class="topbar">
+      <div></div>
+      <div><span id="chi-sono" style="font-size:13px;color:var(--muted);margin-right:14px;"></span><button class="btn secondary" id="btn-logout">Esci</button></div>
+    </div>
+    <div class="content" id="content"></div>
+  </div>
+</div>
+
+<script>
+if(!window.NUOVALAB_CONFIG || window.NUOVALAB_CONFIG.SUPABASE_URL.includes('xxxxxxxxxxxx')){
+  document.getElementById('login-msg').className = 'msg error';
+  document.getElementById('login-msg').textContent = 'Config mancante: copia config.example.js in config.js e inserisci i tuoi dati Supabase.';
+}
+const sb = supabase.createClient(window.NUOVALAB_CONFIG.SUPABASE_URL, window.NUOVALAB_CONFIG.SUPABASE_ANON_KEY);
+
+function mostraMsg(id, testo, tipo){
+  const el = document.getElementById(id);
+  el.textContent = testo;
+  el.className = 'msg ' + tipo;
+}
+
+/* ---------- LOGIN / LOGOUT ---------- */
+document.getElementById('btn-login').addEventListener('click', async ()=>{
+  const email = document.getElementById('email').value.trim();
+  const password = document.getElementById('password').value;
+  if(!email || !password){ mostraMsg('login-msg', 'Inserisci email e password.', 'error'); return; }
+  const { data, error } = await sb.auth.signInWithPassword({ email, password });
+  if(error){ mostraMsg('login-msg', 'Accesso non riuscito: ' + error.message, 'error'); return; }
+  await avviaApp();
+});
+
+document.getElementById('btn-logout').addEventListener('click', async ()=>{
+  await sb.auth.signOut();
+  document.getElementById('app-screen').style.display = 'none';
+  document.getElementById('login-screen').style.display = 'flex';
+});
+
+/* ---------- AVVIO APP DOPO LOGIN ---------- */
+async function avviaApp(){
+  const { data: { session } } = await sb.auth.getSession();
+  if(!session) return;
+
+  const { data: profilo, error } = await sb.from('profili').select('*').eq('id', session.user.id).single();
+  if(error || !profilo){
+    mostraMsg('login-msg', 'Login riuscito ma nessun profilo trovato per questo utente. Controlla la tabella "profili" su Supabase.', 'error');
+    return;
+  }
+
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('app-screen').style.display = 'flex';
+  document.getElementById('chi-sono').textContent = session.user.email;
+  document.getElementById('ruolo-corrente').textContent = profilo.ruolo;
+
+  const NAV_PER_RUOLO = {
+    ADMIN: [
+      { key:'laboratori', label:'Laboratori', fn: () => renderGestioneLaboratori() },
+      { key:'studi', label:'Studi', fn: () => renderGestioneStudi() },
+      { key:'accessi', label:'Crea accesso', fn: () => renderCreaAccesso() }
+    ],
+    LABORATORIO: [
+      { key:'dashboard', label:'Dashboard lavorazioni', fn: () => renderDashboardLavorazioni(profilo) },
+      { key:'studi', label:'I miei studi', fn: () => renderIMieiStudiLab(profilo) },
+      { key:'listino', label:'Listino prezzi', fn: () => renderListinoPrezzi(profilo) },
+      { key:'impostazioni', label:'Impostazioni', fn: () => renderImpostazioni(profilo) },
+      { key:'archivio-lab', label:'Archivio', fn: () => renderArchivioLab(profilo) },
+      { key:'consuntivo', label:'Consuntivo & fatturazione', fn: () => renderConsuntivo(profilo) },
+      { key:'messaggi', label:'Messaggi', fn: () => renderMessaggiLab(profilo) }
+    ],
+    STUDIO: [
+      { key:'nuovo', label:'+ Nuovo lavoro', fn: () => renderNuovoLavoro(profilo) },
+      { key:'lavori', label:'I miei lavori', fn: () => renderMieiLavori(profilo) },
+      { key:'pazienti', label:'Pazienti', fn: () => renderPazienti(profilo) },
+      { key:'archivio-studio', label:'Archivio', fn: () => renderArchivioStudio(profilo) },
+      { key:'laboratori', label:'I miei laboratori', fn: () => renderMieiLaboratori(profilo) },
+      { key:'medici', label:'Team medici', fn: () => renderTeamMedici(profilo) },
+      { key:'messaggi', label:'Messaggi', fn: () => renderMessaggiStudio(profilo) }
+    ],
+    MEDICO: [
+      { key:'pazienti', label:'I miei pazienti', fn: () => renderMedicoDashboard(profilo) },
+      { key:'messaggi', label:'Messaggi', fn: () => renderMessaggiMedico(profilo) }
+    ]
+  };
+
+  const items = NAV_PER_RUOLO[profilo.ruolo];
+  if(!items){
+    document.getElementById('sidebar-nav').innerHTML = '';
+    document.getElementById('content').innerHTML = `
+      <h1>Ruolo: ${profilo.ruolo}</h1>
+      <p class="lead">Questa parte dell'app reale non è ancora collegata — arriva nel prossimo passo. Il login e il tuo profilo funzionano correttamente.</p>
+    `;
+    return;
+  }
+
+  const navEl = document.getElementById('sidebar-nav');
+  navEl.innerHTML = items.map((it,i) => `<button class="nav-btn ${i===0?'active':''}" data-nav-key="${it.key}">${it.label}</button>`).join('');
+  navEl.querySelectorAll('[data-nav-key]').forEach((btn,i) => {
+    btn.onclick = () => {
+      navEl.querySelectorAll('[data-nav-key]').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      items[i].fn();
+    };
+  });
+  items[0].fn();
+}
+
+/* ---------- ADMIN: SCHEDE LABORATORI / STUDI ---------- */
+/* ---------- ADMIN: GESTIONE LABORATORI (collegata al database vero) ---------- */
+async function renderGestioneLaboratori(){
+  const content = document.getElementById('content');
+  content.innerHTML = `
+    <h1>Gestione laboratori</h1>
+    <p class="lead">I laboratori clienti della piattaforma. Dati letti e scritti in tempo reale su Supabase.</p>
+
+    <div class="card">
+      <h3 style="margin-top:0;font-size:13.5px;">+ Nuovo laboratorio</h3>
+      <div class="form-grid">
+        <div class="field"><label>Nome laboratorio</label><input id="nl-nome"></div>
+        <div class="field"><label>Email accesso</label><input id="nl-email" type="email"></div>
+        <div class="field"><label>Licenze studio</label><input id="nl-licenze" type="number" min="1" value="3" style="width:90px;"></div>
+      </div>
+      <button class="btn" id="btn-crea-lab" style="margin-top:12px;">Crea laboratorio</button>
+      <div class="msg" id="lab-msg"></div>
+    </div>
+
+    <div id="tabella-laboratori"><p class="empty">Caricamento…</p></div>
+  `;
+
+  document.getElementById('btn-crea-lab').onclick = async ()=>{
+    const nome = document.getElementById('nl-nome').value.trim();
+    const email = document.getElementById('nl-email').value.trim();
+    const licenze_studio = parseInt(document.getElementById('nl-licenze').value, 10) || 1;
+    if(!nome || !email){ mostraMsg('lab-msg','Nome ed email sono obbligatori.','error'); return; }
+    const { error } = await sb.from('laboratori').insert({ nome, email, licenze_studio, attivo: true });
+    if(error){ mostraMsg('lab-msg', 'Errore: ' + error.message, 'error'); return; }
+    document.getElementById('nl-nome').value = '';
+    document.getElementById('nl-email').value = '';
+    mostraMsg('lab-msg', 'Laboratorio creato.', 'ok');
+    caricaLaboratori();
+  };
+
+  caricaLaboratori();
+}
+
+async function caricaLaboratori(){
+  const el = document.getElementById('tabella-laboratori');
+  const { data: laboratori, error } = await sb.from('laboratori').select('*').order('created_at', { ascending: true });
+  if(error){ el.innerHTML = `<p class="empty">Errore nel caricamento: ${error.message}</p>`; return; }
+  if(!laboratori || laboratori.length === 0){ el.innerHTML = `<p class="empty">Nessun laboratorio ancora creato.</p>`; return; }
+
+  el.innerHTML = `
+    <table><thead><tr><th>Laboratorio</th><th>Email</th><th>Licenze</th><th>Stato</th><th>Azioni</th></tr></thead><tbody>
+      ${laboratori.map(l => `
+        <tr>
+          <td><input type="text" class="inline-text" value="${l.nome}" data-edit-lab="${l.id}" data-campo="nome"></td>
+          <td><input type="email" class="inline-text" value="${l.email}" data-edit-lab="${l.id}" data-campo="email"></td>
+          <td><input type="number" min="0" class="inline-num" value="${l.licenze_studio}" data-licenze="${l.id}"></td>
+          <td>${l.attivo ? `<span class="badge ok"><span class="dot"></span>Attivo</span>` : `<span class="badge off"><span class="dot"></span>Disattivato</span>`}</td>
+          <td>${l.attivo
+              ? `<button class="btn danger" data-toggle="${l.id}" data-stato="false">Disattiva</button>`
+              : `<button class="btn secondary" data-toggle="${l.id}" data-stato="true">Riattiva</button>`}</td>
+        </tr>
+      `).join('')}
+    </tbody></table>
+  `;
+
+  el.querySelectorAll('[data-edit-lab]').forEach(input => {
+    input.onchange = async () => {
+      const { error } = await sb.from('laboratori').update({ [input.dataset.campo]: input.value.trim() }).eq('id', input.dataset.editLab);
+      if(error) alert('Errore salvataggio: ' + error.message);
+    };
+  });
+
+  el.querySelectorAll('[data-licenze]').forEach(input => {
+    input.onchange = async () => {
+      const { error } = await sb.from('laboratori').update({ licenze_studio: parseInt(input.value, 10) || 0 }).eq('id', input.dataset.licenze);
+      if(error) alert('Errore salvataggio: ' + error.message);
+    };
+  });
+  el.querySelectorAll('[data-toggle]').forEach(btn => {
+    btn.onclick = async () => {
+      const nuovoStato = btn.dataset.stato === 'true';
+      const { error } = await sb.from('laboratori').update({ attivo: nuovoStato }).eq('id', btn.dataset.toggle);
+      if(error){ alert('Errore: ' + error.message); return; }
+      caricaLaboratori();
+    };
+  });
+}
+
+/* ---------- ADMIN: GESTIONE STUDI (collegata al database vero) ---------- */
+function siglaFromNome(nome){
+  return nome.split(' ').filter(Boolean).map(w=>w[0]).join('').toUpperCase().slice(0,3);
+}
+
+async function renderGestioneStudi(){
+  const content = document.getElementById('content');
+  content.innerHTML = `
+    <h1>Gestione studi</h1>
+    <p class="lead">Tutti gli studi della piattaforma. Uno studio esiste in autonomia e si collega poi ai laboratori dal proprio pannello.</p>
+
+    <div class="card">
+      <h3 style="margin-top:0;font-size:13.5px;">+ Nuovo studio</h3>
+      <div class="form-grid">
+        <div class="field"><label>Nome studio</label><input id="ns-nome"></div>
+        <div class="field"><label>Sigla (3 lettere)</label><input id="ns-sigla" maxlength="3" style="width:90px;text-transform:uppercase;"></div>
+        <div class="field"><label>Email accesso</label><input id="ns-email" type="email"></div>
+      </div>
+      <div class="field" style="max-width:220px;margin-top:6px;"><label>Licenze laboratorio</label><input id="ns-licenze" type="number" min="1" value="3"></div>
+      <button class="btn" id="btn-crea-studio" style="margin-top:12px;">Crea studio</button>
+      <div class="msg" id="studio-msg"></div>
+    </div>
+
+    <div id="tabella-studi"><p class="empty">Caricamento…</p></div>
+  `;
+
+  const nomeInput = document.getElementById('ns-nome');
+  nomeInput.oninput = () => { document.getElementById('ns-sigla').value = siglaFromNome(nomeInput.value); };
+
+  document.getElementById('btn-crea-studio').onclick = async ()=>{
+    const nome = nomeInput.value.trim();
+    const email = document.getElementById('ns-email').value.trim();
+    const sigla = document.getElementById('ns-sigla').value.trim().toUpperCase() || siglaFromNome(nome);
+    const licenze_laboratorio = parseInt(document.getElementById('ns-licenze').value, 10) || 1;
+    if(!nome || !email || !sigla){ mostraMsg('studio-msg','Nome, sigla ed email sono obbligatori.','error'); return; }
+    const { error } = await sb.from('studi').insert({ nome, sigla, email, licenze_laboratorio, attivo: true });
+    if(error){ mostraMsg('studio-msg', 'Errore: ' + error.message, 'error'); return; }
+    nomeInput.value = ''; document.getElementById('ns-sigla').value = ''; document.getElementById('ns-email').value = '';
+    mostraMsg('studio-msg', 'Studio creato.', 'ok');
+    caricaStudi();
+  };
+
+  caricaStudi();
+}
+
+async function caricaStudi(){
+  const el = document.getElementById('tabella-studi');
+  const { data: studi, error } = await sb.from('studi').select('*').order('created_at', { ascending: true });
+  if(error){ el.innerHTML = `<p class="empty">Errore nel caricamento: ${error.message}</p>`; return; }
+  if(!studi || studi.length === 0){ el.innerHTML = `<p class="empty">Nessuno studio ancora creato.</p>`; return; }
+
+  el.innerHTML = `
+    <table><thead><tr><th>Studio</th><th>Sigla</th><th>Email</th><th>Licenze</th><th>Stato</th><th>Azioni</th></tr></thead><tbody>
+      ${studi.map(s => `
+        <tr>
+          <td><input type="text" class="inline-text" value="${s.nome}" data-edit-studio="${s.id}" data-campo="nome"></td>
+          <td><input type="text" class="inline-text" style="width:60px;text-transform:uppercase;" maxlength="3" value="${s.sigla}" data-edit-studio="${s.id}" data-campo="sigla"></td>
+          <td><input type="email" class="inline-text" value="${s.email}" data-edit-studio="${s.id}" data-campo="email"></td>
+          <td><input type="number" min="0" class="inline-num" value="${s.licenze_laboratorio}" data-licenze-studio="${s.id}"></td>
+          <td>${s.attivo ? `<span class="badge ok"><span class="dot"></span>Attivo</span>` : `<span class="badge off"><span class="dot"></span>Disattivato</span>`}</td>
+          <td>${s.attivo
+              ? `<button class="btn danger" data-toggle-studio="${s.id}" data-stato="false">Disattiva</button>`
+              : `<button class="btn secondary" data-toggle-studio="${s.id}" data-stato="true">Riattiva</button>`}</td>
+        </tr>
+      `).join('')}
+    </tbody></table>
+  `;
+
+  el.querySelectorAll('[data-edit-studio]').forEach(input => {
+    input.onchange = async () => {
+      const valore = input.dataset.campo === 'sigla' ? input.value.trim().toUpperCase() : input.value.trim();
+      const { error } = await sb.from('studi').update({ [input.dataset.campo]: valore }).eq('id', input.dataset.editStudio);
+      if(error) alert('Errore salvataggio: ' + error.message);
+    };
+  });
+
+  el.querySelectorAll('[data-licenze-studio]').forEach(input => {
+    input.onchange = async () => {
+      const { error } = await sb.from('studi').update({ licenze_laboratorio: parseInt(input.value, 10) || 0 }).eq('id', input.dataset.licenzeStudio);
+      if(error) alert('Errore salvataggio: ' + error.message);
+    };
+  });
+  el.querySelectorAll('[data-toggle-studio]').forEach(btn => {
+    btn.onclick = async () => {
+      const nuovoStato = btn.dataset.stato === 'true';
+      const { error } = await sb.from('studi').update({ attivo: nuovoStato }).eq('id', btn.dataset.toggleStudio);
+      if(error){ alert('Errore: ' + error.message); return; }
+      caricaStudi();
+    };
+  });
+}
+
+/* ---------- ADMIN: CREA ACCESSO (Laboratorio o Studio), via Edge Function ---------- */
+async function renderCreaAccesso(){
+  const content = document.getElementById('content');
+  content.innerHTML = `
+    <h1>Crea accesso</h1>
+    <p class="lead">Crea le credenziali di accesso per un laboratorio o uno studio già esistente.</p>
+    <div class="card">
+      <div class="form-grid">
+        <div class="field"><label>Ruolo</label>
+          <select id="ca-ruolo">
+            <option value="LABORATORIO">Laboratorio</option>
+            <option value="STUDIO">Studio</option>
+            <option value="MEDICO">Medico</option>
+          </select>
+        </div>
+        <div class="field"><label id="ca-entita-label">Laboratorio</label>
+          <select id="ca-entita"><option value="">Caricamento…</option></select>
+        </div>
+        <div></div>
+      </div>
+      <div class="form-grid" style="margin-top:10px;">
+        <div class="field"><label>Email accesso</label><input id="ca-email" type="email"></div>
+        <div class="field"><label>Password iniziale</label><input id="ca-password" type="text" value=""></div>
+      </div>
+      <button class="btn" id="btn-crea-accesso" style="margin-top:12px;">Crea accesso</button>
+      <div class="msg" id="accesso-msg"></div>
+    </div>
+
+    <div class="card">
+      <h3 style="margin-top:0;font-size:13.5px;">Reimposta password</h3>
+      <p class="lead" style="margin-bottom:14px;">Se un laboratorio o uno studio ha perso la password, la reimposti qui — non serve conoscere quella vecchia.</p>
+      <div class="form-grid">
+        <div class="field"><label>Email dell'accesso</label><input id="rp-email" type="email"></div>
+        <div class="field"><label>Nuova password</label><input id="rp-password" type="text"></div>
+        <div></div>
+      </div>
+      <button class="btn secondary" id="btn-reset-password" style="margin-top:12px;">Reimposta password</button>
+      <div class="msg" id="reset-msg"></div>
+    </div>
+  `;
+
+  document.getElementById('btn-reset-password').onclick = async () => {
+    const email = document.getElementById('rp-email').value.trim();
+    const newPassword = document.getElementById('rp-password').value;
+    if(!email || !newPassword){ mostraMsg('reset-msg', 'Email e nuova password sono obbligatorie.', 'error'); return; }
+    const { data: { session } } = await sb.auth.getSession();
+    mostraMsg('reset-msg', 'In corso…', 'ok');
+    try{
+      const resp = await fetch(`${window.NUOVALAB_CONFIG.SUPABASE_URL}/functions/v1/hyper-worker`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+          'apikey': window.NUOVALAB_CONFIG.SUPABASE_ANON_KEY
+        },
+        body: JSON.stringify({ action: 'reset_password', email, newPassword })
+      });
+      const risultato = await resp.json();
+      if(!resp.ok){ mostraMsg('reset-msg', 'Errore: ' + (risultato.error || 'sconosciuto'), 'error'); return; }
+      mostraMsg('reset-msg', 'Password reimpostata per ' + email, 'ok');
+      document.getElementById('rp-email').value = '';
+      document.getElementById('rp-password').value = '';
+    } catch(e){
+      mostraMsg('reset-msg', 'Errore di rete: ' + e.message, 'error');
+    }
+  };
+
+  async function caricaEntita(){
+    const ruolo = document.getElementById('ca-ruolo').value;
+    const sel = document.getElementById('ca-entita');
+    document.getElementById('ca-entita-label').textContent = ruolo === 'LABORATORIO' ? 'Laboratorio' : (ruolo === 'STUDIO' ? 'Studio' : 'Medico');
+    if(ruolo === 'MEDICO'){
+      const { data, error } = await sb.from('medici').select('id, nome, studi(nome)').eq('attivo', true).order('nome');
+      if(error){ sel.innerHTML = `<option value="">Errore caricamento</option>`; return; }
+      sel.innerHTML = (data && data.length)
+        ? data.map(r => `<option value="${r.id}">${r.nome} — ${r.studi?.nome || ''}</option>`).join('')
+        : `<option value="">Nessuno disponibile — creane uno prima</option>`;
+      return;
+    }
+    const tabella = ruolo === 'LABORATORIO' ? 'laboratori' : 'studi';
+    const { data, error } = await sb.from(tabella).select('id, nome').eq('attivo', true).order('nome');
+    if(error){ sel.innerHTML = `<option value="">Errore caricamento</option>`; return; }
+    sel.innerHTML = data.length
+      ? data.map(r => `<option value="${r.id}">${r.nome}</option>`).join('')
+      : `<option value="">Nessuno disponibile — creane uno prima</option>`;
+  }
+  document.getElementById('ca-ruolo').onchange = caricaEntita;
+  caricaEntita();
+
+  document.getElementById('btn-crea-accesso').onclick = async ()=>{
+    const ruolo = document.getElementById('ca-ruolo').value;
+    const entitaId = document.getElementById('ca-entita').value;
+    const email = document.getElementById('ca-email').value.trim();
+    const password = document.getElementById('ca-password').value;
+    if(!entitaId){ mostraMsg('accesso-msg', 'Seleziona un laboratorio o studio valido.', 'error'); return; }
+    if(!email || !password){ mostraMsg('accesso-msg', 'Email e password sono obbligatorie.', 'error'); return; }
+
+    const { data: { session } } = await sb.auth.getSession();
+    const body = { email, password, ruolo };
+    if(ruolo === 'LABORATORIO') body.laboratorio_id = entitaId;
+    else if(ruolo === 'STUDIO') body.studio_id = entitaId;
+    else body.medico_id = entitaId;
+
+    mostraMsg('accesso-msg', 'Creazione in corso…', 'ok');
+    try{
+      const resp = await fetch(`${window.NUOVALAB_CONFIG.SUPABASE_URL}/functions/v1/hyper-worker`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+          'apikey': window.NUOVALAB_CONFIG.SUPABASE_ANON_KEY
+        },
+        body: JSON.stringify(body)
+      });
+      const risultato = await resp.json();
+      if(!resp.ok){ mostraMsg('accesso-msg', 'Errore: ' + (risultato.error || 'sconosciuto'), 'error'); return; }
+      mostraMsg('accesso-msg', 'Accesso creato correttamente per ' + email, 'ok');
+      document.getElementById('ca-email').value = '';
+      document.getElementById('ca-password').value = '';
+    } catch(e){
+      mostraMsg('accesso-msg', 'Errore di rete: ' + e.message, 'error');
+    }
+  };
+}
+
+/* ---------- LABORATORIO: STUDI COLLEGATI + RICHIESTE + RICERCA ---------- */
+async function renderIMieiStudiLab(profilo){
+  const content = document.getElementById('content');
+  content.innerHTML = `
+    <h1>I miei studi</h1>
+    <p class="lead">Gli studi collegati a questo laboratorio.</p>
+
+    <div id="lab-collegati"><p class="empty">Caricamento…</p></div>
+
+    <h3 style="font-size:13.5px;margin-top:26px;">Richieste in sospeso da studi</h3>
+    <div id="lab-richieste"><p class="empty">Caricamento…</p></div>
+
+    <div class="card" style="margin-top:20px;position:relative;">
+      <h3 style="margin-top:0;font-size:13.5px;">+ Collega uno studio esistente</h3>
+
+      <div class="field"><label>Cerca studio per nome</label><input id="cerca-studio" placeholder="Scrivi per cercare…"></div>
+      <div id="risultati-studio" style="margin-top:8px;"></div>
+      <div class="msg" id="collega-msg"></div>
+    </div>
+  `;
+
+  await caricaCollegatiLab(profilo.laboratorio_id);
+  await caricaRichiesteLab(profilo.laboratorio_id);
+
+  const cercaInput = document.getElementById('cerca-studio');
+  cercaInput.oninput = async () => {
+    const q = cercaInput.value.trim();
+    const risultatiEl = document.getElementById('risultati-studio');
+    if(q.length < 2){ risultatiEl.innerHTML = ''; return; }
+
+    const { data: giaCollegati } = await sb.from('collegamenti')
+      .select('studio_id').eq('laboratorio_id', profilo.laboratorio_id).neq('stato', 'rimosso');
+    const idEsclusi = (giaCollegati || []).map(c => c.studio_id);
+
+    const { data: studi, error } = await sb.from('studi').select('id, nome, sigla, email')
+      .eq('attivo', true).ilike('nome', `%${q}%`);
+    if(error){ risultatiEl.innerHTML = `<p class="empty">Errore ricerca</p>`; return; }
+
+    const trovati = (studi || []).filter(s => !idEsclusi.includes(s.id));
+    risultatiEl.innerHTML = trovati.length
+      ? trovati.map(s => `<div style="padding:8px 0;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;">
+          <span>${s.nome} <span style="color:var(--muted);font-size:12px;">(${s.sigla})</span></span>
+          <button class="btn secondary" data-richiedi-studio="${s.id}">Richiedi collegamento</button>
+        </div>`).join('')
+      : `<p class="empty">Nessuno studio trovato.</p>`;
+
+    risultatiEl.querySelectorAll('[data-richiedi-studio]').forEach(btn => {
+      btn.onclick = async () => {
+        const { error } = await sb.from('collegamenti').insert({
+          studio_id: btn.dataset.richiediStudio,
+          laboratorio_id: profilo.laboratorio_id,
+          stato: 'in_attesa_studio',
+          iniziato_da: 'LABORATORIO'
+        });
+        if(error){ mostraMsg('collega-msg', 'Errore: ' + error.message, 'error'); return; }
+        mostraMsg('collega-msg', 'Richiesta inviata. Diventerà attiva quando lo studio la accetta.', 'ok');
+        cercaInput.value = '';
+        document.getElementById('risultati-studio').innerHTML = '';
+      };
+    });
+  };
+}
+
+async function caricaCollegatiLab(laboratorioId){
+  const el = document.getElementById('lab-collegati');
+  const { data, error } = await sb.from('collegamenti')
+    .select('id, studi(nome, sigla, email)')
+    .eq('laboratorio_id', laboratorioId).eq('stato', 'attivo');
+  if(error){ el.innerHTML = `<p class="empty">Errore: ${error.message}</p>`; return; }
+  if(!data || data.length === 0){ el.innerHTML = `<p class="empty">Nessuno studio ancora collegato.</p>`; return; }
+
+  el.innerHTML = `
+    <table><thead><tr><th>Studio</th><th>Sigla</th><th>Email</th><th></th></tr></thead><tbody>
+      ${data.map(c => `<tr><td>${c.studi.nome}</td><td>${c.studi.sigla}</td><td>${c.studi.email}</td>
+        <td><button class="btn danger" data-rimuovi-coll="${c.id}">Rimuovi collegamento</button></td></tr>`).join('')}
+    </tbody></table>
+  `;
+  el.querySelectorAll('[data-rimuovi-coll]').forEach(btn => {
+    btn.onclick = async () => {
+      const { error } = await sb.from('collegamenti').update({ stato: 'rimosso' }).eq('id', btn.dataset.rimuoviColl);
+      if(error){ alert('Errore: ' + error.message); return; }
+      caricaCollegatiLab(laboratorioId);
+    };
+  });
+}
+
+async function caricaRichiesteLab(laboratorioId){
+  const el = document.getElementById('lab-richieste');
+  const { data, error } = await sb.from('collegamenti')
+    .select('id, studi(nome, email)')
+    .eq('laboratorio_id', laboratorioId).eq('stato', 'in_attesa_lab');
+  if(error){ el.innerHTML = `<p class="empty">Errore: ${error.message}</p>`; return; }
+  if(!data || data.length === 0){ el.innerHTML = `<p class="empty">Nessuna richiesta in sospeso.</p>`; return; }
+
+  el.innerHTML = `
+    <table><thead><tr><th>Studio</th><th>Email</th><th>Azioni</th></tr></thead><tbody>
+      ${data.map(c => `<tr><td>${c.studi.nome}</td><td>${c.studi.email}</td>
+        <td><button class="btn" data-accetta-coll="${c.id}">Accetta</button>
+            <button class="btn danger" data-rifiuta-coll="${c.id}">Rifiuta</button></td></tr>`).join('')}
+    </tbody></table>
+  `;
+  el.querySelectorAll('[data-accetta-coll]').forEach(btn => {
+    btn.onclick = async () => {
+      const { error } = await sb.from('collegamenti').update({ stato: 'attivo' }).eq('id', btn.dataset.accettaColl);
+      if(error){ alert('Errore: ' + error.message); return; }
+      caricaCollegatiLab(laboratorioId); caricaRichiesteLab(laboratorioId);
+    };
+  });
+  el.querySelectorAll('[data-rifiuta-coll]').forEach(btn => {
+    btn.onclick = async () => {
+      const { error } = await sb.from('collegamenti').update({ stato: 'rimosso' }).eq('id', btn.dataset.rifiutaColl);
+      if(error){ alert('Errore: ' + error.message); return; }
+      caricaRichiesteLab(laboratorioId);
+    };
+  });
+}
+
+/* ---------- STUDIO: LABORATORI COLLEGATI + RICHIESTE + RICERCA ---------- */
+async function renderMieiLaboratori(profilo){
+  const content = document.getElementById('content');
+  content.innerHTML = `
+    <h1>I miei laboratori</h1>
+    <p class="lead">I laboratori con cui il tuo studio lavora.</p>
+
+    <div id="studio-collegati"><p class="empty">Caricamento…</p></div>
+
+    <h3 style="font-size:13.5px;margin-top:26px;">Richieste in sospeso da laboratori</h3>
+    <div id="studio-richieste"><p class="empty">Caricamento…</p></div>
+
+    <div class="card" style="margin-top:20px;position:relative;">
+      <h3 style="margin-top:0;font-size:13.5px;">+ Collega un laboratorio esistente</h3>
+      <div class="field"><label>Cerca laboratorio per nome</label><input id="cerca-lab" placeholder="Scrivi per cercare…"></div>
+      <div id="risultati-lab" style="margin-top:8px;"></div>
+      <div class="msg" id="collega-lab-msg"></div>
+    </div>
+  `;
+
+  await caricaCollegatiStudio(profilo.studio_id);
+  await caricaRichiesteStudio(profilo.studio_id);
+
+  const cercaInput = document.getElementById('cerca-lab');
+  cercaInput.oninput = async () => {
+    const q = cercaInput.value.trim();
+    const risultatiEl = document.getElementById('risultati-lab');
+    if(q.length < 2){ risultatiEl.innerHTML = ''; return; }
+
+    const { data: giaCollegati } = await sb.from('collegamenti')
+      .select('laboratorio_id').eq('studio_id', profilo.studio_id).neq('stato', 'rimosso');
+    const idEsclusi = (giaCollegati || []).map(c => c.laboratorio_id);
+
+    const { data: laboratori, error } = await sb.from('laboratori').select('id, nome, email')
+      .eq('attivo', true).ilike('nome', `%${q}%`);
+    if(error){ risultatiEl.innerHTML = `<p class="empty">Errore ricerca</p>`; return; }
+
+    const trovati = (laboratori || []).filter(l => !idEsclusi.includes(l.id));
+    risultatiEl.innerHTML = trovati.length
+      ? trovati.map(l => `<div style="padding:8px 0;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;">
+          <span>${l.nome}</span>
+          <button class="btn secondary" data-richiedi-lab="${l.id}">Richiedi collegamento</button>
+        </div>`).join('')
+      : `<p class="empty">Nessun laboratorio trovato.</p>`;
+
+    risultatiEl.querySelectorAll('[data-richiedi-lab]').forEach(btn => {
+      btn.onclick = async () => {
+        const { error } = await sb.from('collegamenti').insert({
+          studio_id: profilo.studio_id,
+          laboratorio_id: btn.dataset.richiediLab,
+          stato: 'in_attesa_lab',
+          iniziato_da: 'STUDIO'
+        });
+        if(error){ mostraMsg('collega-lab-msg', 'Errore: ' + error.message, 'error'); return; }
+        mostraMsg('collega-lab-msg', 'Richiesta inviata. Diventerà attiva quando il laboratorio la accetta.', 'ok');
+        cercaInput.value = '';
+        document.getElementById('risultati-lab').innerHTML = '';
+      };
+    });
+  };
+}
+
+async function caricaCollegatiStudio(studioId){
+  const el = document.getElementById('studio-collegati');
+  const { data, error } = await sb.from('collegamenti')
+    .select('id, laboratori(nome, email)')
+    .eq('studio_id', studioId).eq('stato', 'attivo');
+  if(error){ el.innerHTML = `<p class="empty">Errore: ${error.message}</p>`; return; }
+  if(!data || data.length === 0){ el.innerHTML = `<p class="empty">Nessun laboratorio ancora collegato.</p>`; return; }
+
+  el.innerHTML = `
+    <table><thead><tr><th>Laboratorio</th><th>Email</th><th></th></tr></thead><tbody>
+      ${data.map(c => `<tr><td>${c.laboratori.nome}</td><td>${c.laboratori.email}</td>
+        <td><button class="btn danger" data-rimuovi-coll="${c.id}">Rimuovi collegamento</button></td></tr>`).join('')}
+    </tbody></table>
+  `;
+  el.querySelectorAll('[data-rimuovi-coll]').forEach(btn => {
+    btn.onclick = async () => {
+      const { error } = await sb.from('collegamenti').update({ stato: 'rimosso' }).eq('id', btn.dataset.rimuoviColl);
+      if(error){ alert('Errore: ' + error.message); return; }
+      caricaCollegatiStudio(studioId);
+    };
+  });
+}
+
+async function caricaRichiesteStudio(studioId){
+  const el = document.getElementById('studio-richieste');
+  const { data, error } = await sb.from('collegamenti')
+    .select('id, laboratori(nome, email)')
+    .eq('studio_id', studioId).eq('stato', 'in_attesa_studio');
+  if(error){ el.innerHTML = `<p class="empty">Errore: ${error.message}</p>`; return; }
+  if(!data || data.length === 0){ el.innerHTML = `<p class="empty">Nessuna richiesta in sospeso.</p>`; return; }
+
+  el.innerHTML = `
+    <table><thead><tr><th>Laboratorio</th><th>Email</th><th>Azioni</th></tr></thead><tbody>
+      ${data.map(c => `<tr><td>${c.laboratori.nome}</td><td>${c.laboratori.email}</td>
+        <td><button class="btn" data-accetta-coll="${c.id}">Accetta</button>
+            <button class="btn danger" data-rifiuta-coll="${c.id}">Rifiuta</button></td></tr>`).join('')}
+    </tbody></table>
+  `;
+  el.querySelectorAll('[data-accetta-coll]').forEach(btn => {
+    btn.onclick = async () => {
+      const { error } = await sb.from('collegamenti').update({ stato: 'attivo' }).eq('id', btn.dataset.accettaColl);
+      if(error){ alert('Errore: ' + error.message); return; }
+      caricaCollegatiStudio(studioId); caricaRichiesteStudio(studioId);
+    };
+  });
+  el.querySelectorAll('[data-rifiuta-coll]').forEach(btn => {
+    btn.onclick = async () => {
+      const { error } = await sb.from('collegamenti').update({ stato: 'rimosso' }).eq('id', btn.dataset.rifiutaColl);
+      if(error){ alert('Errore: ' + error.message); return; }
+      caricaRichiesteStudio(studioId);
+    };
+  });
+}
+
+/* ---------- STUDIO: TEAM MEDICI ---------- */
+async function renderTeamMedici(profilo){
+  const content = document.getElementById('content');
+  content.innerHTML = `
+    <h1>Team medici</h1>
+    <p class="lead">I medici che possono firmare le prescrizioni per il tuo studio.</p>
+
+    <div class="card">
+      <h3 style="margin-top:0;font-size:13.5px;">+ Nuovo medico</h3>
+      <div class="form-grid">
+        <div class="field"><label>Nome e cognome</label><input id="med-nome" placeholder="Es. Dr. Rossi"></div>
+        <div class="field"><label>Email accesso</label><input id="med-email" type="email"></div>
+      </div>
+      <div class="form-grid" style="margin-top:10px;">
+        <div class="field"><label>Provincia iscrizione Albo</label><input id="med-provincia" maxlength="2" style="width:90px;text-transform:uppercase;"></div>
+        <div class="field"><label>Numero iscrizione Albo</label><input id="med-numero" type="number" min="1"></div>
+      </div>
+      <button class="btn" id="btn-crea-medico" style="margin-top:12px;">Crea medico</button>
+      <div class="msg" id="medico-msg"></div>
+    </div>
+
+    <div id="tabella-medici"><p class="empty">Caricamento…</p></div>
+  `;
+
+  document.getElementById('btn-crea-medico').onclick = async () => {
+    const nome = document.getElementById('med-nome').value.trim();
+    const email = document.getElementById('med-email').value.trim();
+    const provincia = document.getElementById('med-provincia').value.trim().toUpperCase();
+    const numero = document.getElementById('med-numero').value.trim();
+    if(!nome || !email){ mostraMsg('medico-msg', 'Nome ed email sono obbligatori.', 'error'); return; }
+    if(!/^[A-Z]{2}$/.test(provincia)){ mostraMsg('medico-msg', 'La provincia deve essere una sigla di 2 lettere (es. MI).', 'error'); return; }
+    if(!numero){ mostraMsg('medico-msg', 'Il numero di iscrizione è obbligatorio.', 'error'); return; }
+    const { error } = await sb.from('medici').insert({
+      studio_id: profilo.studio_id, nome, email,
+      provincia_albo: provincia, numero_albo: numero, attivo: true
+    });
+    if(error){ mostraMsg('medico-msg', 'Errore: ' + error.message, 'error'); return; }
+    document.getElementById('med-nome').value = '';
+    document.getElementById('med-email').value = '';
+    document.getElementById('med-provincia').value = '';
+    document.getElementById('med-numero').value = '';
+    mostraMsg('medico-msg', 'Medico creato.', 'ok');
+    caricaMedici(profilo.studio_id);
+  };
+
+  caricaMedici(profilo.studio_id);
+}
+
+async function caricaMedici(studioId){
+  const el = document.getElementById('tabella-medici');
+  const { data, error } = await sb.from('medici').select('*').eq('studio_id', studioId).order('created_at');
+  if(error){ el.innerHTML = `<p class="empty">Errore: ${error.message}</p>`; return; }
+  if(!data || data.length === 0){ el.innerHTML = `<p class="empty">Nessun medico registrato.</p>`; return; }
+
+  el.innerHTML = `
+    <table><thead><tr><th>Medico</th><th>Email</th><th>Provincia</th><th>N. Albo</th><th>Stato</th><th>Azioni</th></tr></thead><tbody>
+      ${data.map(m => `
+        <tr>
+          <td><input type="text" class="inline-text" value="${m.nome}" data-edit-medico="${m.id}" data-campo="nome"></td>
+          <td><input type="email" class="inline-text" value="${m.email}" data-edit-medico="${m.id}" data-campo="email"></td>
+          <td><input type="text" class="inline-text" style="width:50px;text-transform:uppercase;" maxlength="2" value="${m.provincia_albo}" data-edit-medico="${m.id}" data-campo="provincia_albo"></td>
+          <td><input type="text" class="inline-text" style="width:80px;" value="${m.numero_albo}" data-edit-medico="${m.id}" data-campo="numero_albo"></td>
+          <td>${m.attivo ? `<span class="badge ok"><span class="dot"></span>Attivo</span>` : `<span class="badge off"><span class="dot"></span>Disattivato</span>`}</td>
+          <td>${m.attivo
+              ? `<button class="btn danger" data-toggle-medico="${m.id}" data-stato="false">Disattiva</button>`
+              : `<button class="btn secondary" data-toggle-medico="${m.id}" data-stato="true">Riattiva</button>`}</td>
+        </tr>
+      `).join('')}
+    </tbody></table>
+  `;
+  el.querySelectorAll('[data-edit-medico]').forEach(input => {
+    input.onchange = async () => {
+      const valore = input.dataset.campo === 'provincia_albo' ? input.value.trim().toUpperCase() : input.value.trim();
+      const { error } = await sb.from('medici').update({ [input.dataset.campo]: valore }).eq('id', input.dataset.editMedico);
+      if(error) alert('Errore salvataggio: ' + error.message);
+    };
+  });
+  el.querySelectorAll('[data-toggle-medico]').forEach(btn => {
+    btn.onclick = async () => {
+      const { error } = await sb.from('medici').update({ attivo: btn.dataset.stato === 'true' }).eq('id', btn.dataset.toggleMedico);
+      if(error){ alert('Errore: ' + error.message); return; }
+      caricaMedici(studioId);
+    };
+  });
+}
+
+/* ---------- STUDIO: NUOVO LAVORO ---------- */
+async function renderNuovoLavoro(profilo){
+  const content = document.getElementById('content');
+
+  const { data: collegamenti } = await sb.from('collegamenti')
+    .select('laboratorio_id, laboratori(nome)').eq('studio_id', profilo.studio_id).eq('stato', 'attivo');
+  const { data: medici } = await sb.from('medici').select('id, nome').eq('studio_id', profilo.studio_id).eq('attivo', true);
+
+  if(!collegamenti || collegamenti.length === 0){
+    content.innerHTML = `<h1>Nuovo lavoro</h1><p class="lead">Nessun laboratorio collegato: collegane uno dalla scheda "I miei laboratori" prima di creare un lavoro.</p>`;
+    return;
+  }
+  if(!medici || medici.length === 0){
+    content.innerHTML = `<h1>Nuovo lavoro</h1><p class="lead">Nessun medico registrato: aggiungine uno dalla scheda "Team medici" prima di creare un lavoro.</p>`;
+    return;
+  }
+
+  content.innerHTML = `
+    <h1>Nuovo lavoro</h1>
+    <p class="lead">Cognome, nome, medico, tipo di lavoro e data di consegna sono obbligatori.</p>
+    <div class="card">
+      <div class="form-grid">
+        <div class="field"><label>Laboratorio destinatario</label>
+          <select id="nl-laboratorio">${collegamenti.map(c => `<option value="${c.laboratorio_id}">${c.laboratori.nome}</option>`).join('')}</select>
+        </div>
+        <div class="field"><label>Medico prescrittore</label>
+          <select id="nl-medico">${medici.map(m => `<option value="${m.id}">${m.nome}</option>`).join('')}</select>
+        </div>
+        <div></div>
+      </div>
+      <div class="field" style="margin-top:10px;"><label>Paziente esistente (facoltativo)</label>
+        <select id="nl-paziente-esistente"><option value="">+ Nuovo paziente</option></select>
+      </div>
+      <div class="form-grid" style="margin-top:10px;">
+        <div class="field"><label>Cognome paziente</label><input id="nl-cognome"></div>
+        <div class="field"><label>Nome paziente</label><input id="nl-nome"></div>
+        <div class="field"><label>Data consegna richiesta</label><input id="nl-data" type="date" value="${new Date().toISOString().slice(0,10)}"></div>
+      </div>
+      <div class="form-grid" style="margin-top:10px;">
+        <div class="field"><label>Categoria lavoro</label><select id="nl-macro"></select></div>
+        <div class="field"><label>Tipo di lavoro</label><select id="nl-micro"></select></div>
+        <div class="field"><label>Colore</label><select id="nl-colore"></select></div>
+      </div>
+      <div class="field" style="margin-top:10px;"><label>Note cliniche</label><textarea id="nl-note" rows="3" style="width:100%;border:1px solid var(--line);border-radius:6px;padding:10px;font-family:inherit;"></textarea></div>
+      <button class="btn" id="btn-crea-lavoro" style="margin-top:12px;">Crea lavoro e invia al laboratorio</button>
+      <div class="msg" id="lavoro-msg"></div>
+    </div>
+  `;
+
+  let macroCorrenti = [];
+  async function caricaImpostazioniLab(laboratorioId){
+    const { data: macros } = await sb.from('tipi_lavoro_macro').select('id, nome, tipi_lavoro_micro(nome)').eq('laboratorio_id', laboratorioId).order('nome');
+    const { data: coloriDb } = await sb.from('colori').select('nome').eq('laboratorio_id', laboratorioId).order('nome');
+    macroCorrenti = macros || [];
+    const macroSel = document.getElementById('nl-macro');
+    macroSel.innerHTML = macroCorrenti.length
+      ? macroCorrenti.map(m => `<option value="${m.id}">${m.nome}</option>`).join('')
+      : `<option value="">Nessuna categoria impostata</option>`;
+    aggiornaMicro();
+    document.getElementById('nl-colore').innerHTML = (coloriDb && coloriDb.length)
+      ? coloriDb.map(c => `<option>${c.nome}</option>`).join('')
+      : `<option value="">Nessun colore impostato</option>`;
+  }
+  function aggiornaMicro(){
+    const m = macroCorrenti.find(x => x.id === document.getElementById('nl-macro').value);
+    document.getElementById('nl-micro').innerHTML = (m && m.tipi_lavoro_micro && m.tipi_lavoro_micro.length)
+      ? m.tipi_lavoro_micro.map(mi => `<option>${mi.nome}</option>`).join('')
+      : `<option value="">Nessun tipo impostato</option>`;
+  }
+  document.getElementById('nl-macro').addEventListener('change', aggiornaMicro);
+  document.getElementById('nl-laboratorio').addEventListener('change', (e) => caricaImpostazioniLab(e.target.value));
+
+  const { data: pazientiEsistenti } = await sb.from('pazienti').select('id, cognome, nome').eq('studio_id', profilo.studio_id).order('cognome');
+  const pazSel = document.getElementById('nl-paziente-esistente');
+  pazSel.innerHTML = `<option value="">+ Nuovo paziente</option>` + (pazientiEsistenti||[]).map(p => `<option value="${p.id}">${p.cognome} ${p.nome}</option>`).join('');
+  pazSel.onchange = () => {
+    const p = (pazientiEsistenti||[]).find(x => x.id === pazSel.value);
+    const cogInput = document.getElementById('nl-cognome');
+    const nomeInput = document.getElementById('nl-nome');
+    if(p){ cogInput.value = p.cognome; nomeInput.value = p.nome; cogInput.disabled = true; nomeInput.disabled = true; }
+    else { cogInput.value = ''; nomeInput.value = ''; cogInput.disabled = false; nomeInput.disabled = false; }
+  };
+  await caricaImpostazioniLab(collegamenti[0].laboratorio_id);
+
+  document.getElementById('btn-crea-lavoro').onclick = async () => {
+    const laboratorio_id = document.getElementById('nl-laboratorio').value;
+    const medico_id = document.getElementById('nl-medico').value;
+    const cognome_paziente = document.getElementById('nl-cognome').value.trim();
+    const nome_paziente = document.getElementById('nl-nome').value.trim();
+    const data_consegna_richiesta = document.getElementById('nl-data').value;
+    const macroSel = document.getElementById('nl-macro');
+    const tipo_macro = macroSel.selectedOptions[0]?.textContent || '';
+    const tipo_micro = document.getElementById('nl-micro').value;
+    const colore = document.getElementById('nl-colore').value;
+    const note = document.getElementById('nl-note').value.trim();
+
+    if(!cognome_paziente || !nome_paziente || !medico_id || !data_consegna_richiesta || !tipo_macro || !tipo_micro || !colore){
+      mostraMsg('lavoro-msg', 'Compila tutti i campi obbligatori.', 'error'); return;
+    }
+
+    const id = await generaIdLavoro(profilo);
+    const paziente_id = document.getElementById('nl-paziente-esistente').value || null;
+    const { error } = await sb.from('lavorazioni').insert({
+      id, studio_id: profilo.studio_id, laboratorio_id, medico_id, paziente_id,
+      cognome_paziente, nome_paziente, tipo_macro, tipo_micro, colore, note,
+      data_consegna_richiesta, consegna_stato: 'in_attesa', stato_lab: ''
+    });
+    if(error){ mostraMsg('lavoro-msg', 'Errore: ' + error.message, 'error'); return; }
+    mostraMsg('lavoro-msg', `Lavoro ${id} creato e inviato al laboratorio.`, 'ok');
+    document.getElementById('nl-paziente-esistente').value = '';
+    document.getElementById('nl-cognome').disabled = false;
+    document.getElementById('nl-nome').disabled = false;
+    ['nl-cognome','nl-nome','nl-data','nl-macro','nl-micro','nl-colore','nl-note'].forEach(idc => document.getElementById(idc).value = '');
+  };
+}
+
+async function generaIdLavoro(profilo){
+  const { data: studio } = await sb.from('studi').select('sigla').eq('id', profilo.studio_id).single();
+  const anno = new Date().getFullYear();
+  const { count } = await sb.from('lavorazioni')
+    .select('id', { count: 'exact', head: true })
+    .eq('studio_id', profilo.studio_id)
+    .like('id', `${studio.sigla}-${anno}-%`);
+  const progressivo = String((count || 0) + 1).padStart(4, '0');
+  return `${studio.sigla}-${anno}-${progressivo}`;
+}
+
+/* ---------- STUDIO: I MIEI LAVORI ---------- */
+async function renderMieiLavori(profilo){
+  const content = document.getElementById('content');
+  content.innerHTML = `<h1>I miei lavori</h1><p class="lead">Tutte le pratiche inviate ai laboratori collegati.</p><div id="lista-miei-lavori"><p class="empty">Caricamento…</p></div>`;
+  caricaMieiLavori(profilo);
+}
+
+async function caricaMieiLavori(profilo){
+  const el = document.getElementById('lista-miei-lavori');
+  const { data, error } = await sb.from('lavorazioni')
+    .select('id, laboratorio_id, cognome_paziente, nome_paziente, tipo_macro, tipo_micro, colore, data_consegna_richiesta, data_consegna_confermata, consegna_stato, riprogrammazione_vista, motivo_riprogrammazione, stato_lab, stato_studio, medici(nome), laboratori(nome)')
+    .eq('studio_id', profilo.studio_id).order('created_at', { ascending: false });
+  if(error){ el.innerHTML = `<p class="empty">Errore: ${error.message}</p>`; return; }
+  if(!data || data.length === 0){ el.innerHTML = `<p class="empty">Nessun lavoro creato.</p>`; return; }
+
+  const STATO_LABEL = { '': 'Da iniziare', in_lavorazione: 'In lavorazione', in_ritardo: 'In ritardo', da_rifare: 'Da rifare', in_consegna: 'In consegna' };
+  el.innerHTML = `
+    <table><thead><tr><th>ID</th><th>Paziente</th><th>Medico</th><th>Laboratorio</th><th>Lavoro</th><th>Consegna</th><th>Stato</th><th>Azioni</th><th>Documenti</th></tr></thead><tbody>
+      ${data.map(j => {
+        let cellaConsegna;
+        if(j.consegna_stato === 'riprogrammata'){
+          cellaConsegna = `<strong>${j.data_consegna_confermata}</strong><div style="font-size:11px;color:var(--muted);text-decoration:line-through;">${j.data_consegna_richiesta}</div>
+            <span class="badge off"><span class="dot"></span>Riprogrammata</span>
+            ${j.motivo_riprogrammazione ? `<div style="font-size:11px;color:var(--muted);">${j.motivo_riprogrammazione}</div>` : ''}
+            ${!j.riprogrammazione_vista ? `<button class="btn secondary" data-vista="${j.id}" style="margin-top:4px;">OK, ho visto</button>` : ''}`;
+        } else {
+          cellaConsegna = j.data_consegna_confermata || j.data_consegna_richiesta;
+        }
+        return `<tr>
+        <td>${j.id}</td>
+        <td>${j.cognome_paziente} ${j.nome_paziente}</td>
+        <td>${j.medici?.nome || '—'}</td>
+        <td>${j.laboratori?.nome || '—'}</td>
+        <td>${j.tipo_macro} › ${j.tipo_micro} · ${j.colore}</td>
+        <td>${cellaConsegna}</td>
+        <td><span class="badge off"><span class="dot"></span>${STATO_LABEL[j.stato_lab] || j.stato_lab}</span></td>
+        <td>${j.stato_studio === 'consegnato'
+            ? `<span class="badge ok"><span class="dot"></span>Consegnato</span>`
+            : (j.stato_lab === 'in_consegna'
+                ? `<button class="btn secondary" data-consegna-ok="${j.id}">Segna consegnato</button><br><button class="btn danger" data-segnala="${j.id}:${j.laboratorio_id}" style="margin-top:4px;">Problematico</button>`
+                : `<button class="btn danger" data-segnala="${j.id}:${j.laboratorio_id}">Problematico</button>`)}</td>
+        <td style="max-width:220px;">${docButtonsHtml(j.id)}</td>
+      </tr>`;
+      }).join('')}
+    </tbody></table>
+  `;
+  bindDocButtons(el);
+  el.querySelectorAll('[data-vista]').forEach(btn => {
+    btn.onclick = async () => {
+      await sb.from('lavorazioni').update({ riprogrammazione_vista: true }).eq('id', btn.dataset.vista);
+      caricaMieiLavori(profilo);
+    };
+  });
+  el.querySelectorAll('[data-segnala]').forEach(btn => {
+    btn.onclick = () => {
+      const [jobId, laboratorioId] = btn.dataset.segnala.split(':');
+      apriModaleSegnalazione(jobId, laboratorioId, () => caricaMieiLavori(profilo));
+    };
+  });
+  el.querySelectorAll('[data-consegna-ok]').forEach(btn => {
+    btn.onclick = async () => {
+      const { error } = await sb.from('lavorazioni').update({
+        stato_studio: 'consegnato',
+        data_chiusura: new Date().toISOString().slice(0,10)
+      }).eq('id', btn.dataset.consegnaOk);
+      if(error){ alert('Errore: ' + error.message); return; }
+      caricaMieiLavori(profilo);
+    };
+  });
+}
+
+async function apriModaleSegnalazione(jobId, laboratorioId, onSalvato){
+  const { data: tipi } = await sb.from('tipi_problema').select('nome').eq('laboratorio_id', laboratorioId).order('nome');
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;z-index:999;';
+  wrap.innerHTML = `
+    <div class="box" style="width:380px;">
+      <h1 style="font-size:16px;margin-bottom:4px;">Segnala problema</h1>
+      <p style="font-size:12px;color:var(--muted);margin-top:0;">La pratica tornerà "Da rifare" e il laboratorio vedrà la segnalazione.</p>
+      <div class="field"><label>Tipo di problema</label>
+        <select id="sg-tipo">${(tipi && tipi.length) ? tipi.map(t => `<option>${t.nome}</option>`).join('') : `<option value="">Nessun tipo impostato</option>`}</select>
+      </div>
+      <div class="field"><label>Dettaglio</label><textarea id="sg-dettaglio" rows="3" style="width:100%;border:1px solid var(--line);border-radius:6px;padding:10px;font-family:inherit;"></textarea></div>
+      <button class="btn danger block" id="sg-salva">Invia segnalazione</button>
+      <button class="btn secondary block" id="sg-annulla" style="margin-top:6px;">Annulla</button>
+    </div>
+  `;
+  document.body.appendChild(wrap);
+  document.getElementById('sg-annulla').onclick = () => wrap.remove();
+  document.getElementById('sg-salva').onclick = async () => {
+    const tipo = document.getElementById('sg-tipo').value;
+    const dettaglio = document.getElementById('sg-dettaglio').value.trim();
+    if(!tipo || !dettaglio){ alert('Tipo e dettaglio sono obbligatori.'); return; }
+    const { error: e1 } = await sb.from('segnalazioni').insert({ lavorazione_id: jobId, tipo, dettaglio });
+    if(e1){ alert('Errore: ' + e1.message); return; }
+    const { error: e2 } = await sb.from('lavorazioni').update({ stato_lab: 'da_rifare' }).eq('id', jobId);
+    if(e2){ alert('Errore: ' + e2.message); return; }
+    wrap.remove();
+    onSalvato();
+  };
+}
+
+function apriModaleRiprogramma(jobId, onSalvato){
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;z-index:999;';
+  wrap.innerHTML = `
+    <div class="box" style="width:360px;">
+      <h1 style="font-size:16px;margin-bottom:14px;">Riprogramma consegna</h1>
+      <div class="field"><label>Nuova data di consegna</label><input id="rp-data" type="date"></div>
+      <div class="field"><label>Motivo (facoltativo, visibile allo studio)</label><textarea id="rp-motivo" rows="3" style="width:100%;border:1px solid var(--line);border-radius:6px;padding:10px;font-family:inherit;"></textarea></div>
+      <button class="btn block" id="rp-salva">Riprogramma</button>
+      <button class="btn secondary block" id="rp-annulla" style="margin-top:6px;">Annulla</button>
+    </div>
+  `;
+  document.body.appendChild(wrap);
+  document.getElementById('rp-annulla').onclick = () => wrap.remove();
+  document.getElementById('rp-salva').onclick = async () => {
+    const nuovaData = document.getElementById('rp-data').value;
+    if(!nuovaData){ alert('Seleziona una data.'); return; }
+    const motivo = document.getElementById('rp-motivo').value.trim();
+    const { error } = await sb.from('lavorazioni').update({
+      data_consegna_confermata: nuovaData,
+      consegna_stato: 'riprogrammata',
+      riprogrammazione_vista: false,
+      motivo_riprogrammazione: motivo || null
+    }).eq('id', jobId);
+    if(error){ alert('Errore: ' + error.message); return; }
+    wrap.remove();
+    onSalvato();
+  };
+}
+
+/* ---------- LABORATORIO: DASHBOARD LAVORAZIONI ---------- */
+async function apriModaleMateriale(jobId, laboratorioId, onSalvato){
+  const { data: catalogo } = await sb.from('materiali_catalogo').select('nome').eq('laboratorio_id', laboratorioId).order('nome');
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;z-index:999;';
+  wrap.innerHTML = `
+    <div class="box" style="width:360px;">
+      <h1 style="font-size:16px;margin-bottom:14px;">Aggiungi materiale</h1>
+      <div class="field"><label>Materiale</label>
+        <select id="am-materiale">
+          ${(catalogo && catalogo.length) ? catalogo.map(c => `<option>${c.nome}</option>`).join('') : `<option value="">Nessun materiale impostato — vai su Impostazioni</option>`}
+        </select>
+      </div>
+      <div class="field"><label>Lotto</label><input id="am-lotto" placeholder="Scansiona o scrivi il lotto…"></div>
+      <button class="btn block" id="am-salva">Aggiungi</button>
+      <button class="btn secondary block" id="am-annulla" style="margin-top:6px;">Annulla</button>
+    </div>
+  `;
+  document.body.appendChild(wrap);
+  document.getElementById('am-annulla').onclick = () => wrap.remove();
+  document.getElementById('am-salva').onclick = async () => {
+    const materiale = document.getElementById('am-materiale').value;
+    const lotto = document.getElementById('am-lotto').value.trim();
+    if(!materiale || !lotto){ alert('Materiale e lotto sono obbligatori.'); return; }
+    const { error } = await sb.from('materiali_lavorazione').insert({ lavorazione_id: jobId, materiale, lotto });
+    if(error){ alert('Errore: ' + error.message); return; }
+    wrap.remove();
+    onSalvato();
+  };
+}
+
+const STATO_LAB_LABEL = { '': 'Da iniziare', in_lavorazione: 'In lavorazione', in_ritardo: 'In ritardo', da_rifare: 'Da rifare', in_consegna: 'In consegna' };
+
+async function renderDashboardLavorazioni(profilo){
+  const content = document.getElementById('content');
+  content.innerHTML = `
+    <h1>Dashboard lavorazioni</h1>
+    <p class="lead">Le pratiche inviate dagli studi collegati. Per tutela della privacy, qui compare solo l'ID pratica.</p>
+    <div id="lista-lavorazioni-lab"><p class="empty">Caricamento…</p></div>
+  `;
+  caricaLavorazioniLab(profilo);
+}
+
+async function caricaLavorazioniLab(profilo){
+  const el = document.getElementById('lista-lavorazioni-lab');
+  const { data: odontotecniciDb } = await sb.from('odontotecnici').select('nome').eq('laboratorio_id', profilo.laboratorio_id).order('nome');
+  const { data, error } = await sb.from('lavorazioni')
+    .select('id, tipo_macro, tipo_micro, colore, data_consegna_richiesta, data_consegna_confermata, consegna_stato, stato_lab, odontotecnico, studi(nome), materiali_lavorazione(materiale, lotto), segnalazioni(tipo, dettaglio, created_at)')
+    .eq('laboratorio_id', profilo.laboratorio_id)
+    .is('stato_studio', null)
+    .order('data_consegna_richiesta', { ascending: true });
+  if(error){ el.innerHTML = `<p class="empty">Errore: ${error.message}</p>`; return; }
+  if(!data || data.length === 0){ el.innerHTML = `<p class="empty">Nessuna lavorazione in corso.</p>`; return; }
+
+  el.innerHTML = `
+    <table><thead><tr><th>ID pratica</th><th>Studio</th><th>Lavoro</th><th>Colore</th><th>Consegna</th><th>Segnalazione</th><th>Stato</th><th>Odontotecnico</th><th>Materiali</th><th>Documenti</th></tr></thead><tbody>
+      ${data.map(j => {
+        const ultimaSeg = (j.segnalazioni && j.segnalazioni.length) ? j.segnalazioni[j.segnalazioni.length-1] : null;
+        let cellaConsegna;
+        if(j.consegna_stato === 'in_attesa'){
+          cellaConsegna = `Richiesta: ${j.data_consegna_richiesta}<br><button class="btn secondary" data-accetta-consegna="${j.id}">✓ Accetta</button> <button class="btn secondary" data-riprogramma="${j.id}">📅 Riprogramma</button>`;
+        } else {
+          cellaConsegna = `${j.data_consegna_confermata || j.data_consegna_richiesta}${j.consegna_stato==='riprogrammata' ? `<div><span class="badge off"><span class="dot"></span>Riprogrammata</span></div>` : ''}<br><button class="btn secondary" data-riprogramma="${j.id}" style="margin-top:4px;">📅 Riprogramma</button>`;
+        }
+        return `
+        <tr${j.stato_lab==='da_rifare' ? ' style="background:#f8e6e3;"' : ''}>
+          <td>${j.id}</td>
+          <td>${j.studi?.nome || '—'}</td>
+          <td>${j.tipo_macro} › ${j.tipo_micro}</td>
+          <td>${j.colore}</td>
+          <td>${cellaConsegna}</td>
+          <td style="max-width:180px;">${ultimaSeg ? `<strong style="font-size:12px;">${ultimaSeg.tipo}</strong><div style="font-size:11px;color:var(--muted);white-space:normal;">${ultimaSeg.dettaglio}</div>` : '—'}</td>
+          <td><select class="inline-text" data-set-stato="${j.id}">
+              ${Object.entries(STATO_LAB_LABEL).map(([k,l]) => `<option value="${k}" ${j.stato_lab===k?'selected':''}>${l}</option>`).join('')}
+            </select></td>
+          <td><select class="inline-text" data-set-odt="${j.id}">
+              <option value="">—</option>
+              ${(odontotecniciDb||[]).map(o => `<option ${j.odontotecnico===o.nome?'selected':''}>${o.nome}</option>`).join('')}
+            </select></td>
+          <td>
+            ${(j.materiali_lavorazione || []).map(m => `<div style="font-size:12px;color:var(--muted);">${m.materiale} — ${m.lotto}</div>`).join('')}
+            <button class="btn secondary" data-agg-materiale="${j.id}" style="margin-top:4px;">+ Materiale</button>
+          </td>
+          <td style="max-width:220px;">${docButtonsHtml(j.id)}</td>
+        </tr>
+      `;}).join('')}
+    </tbody></table>
+  `;
+  bindDocButtons(el);
+
+  el.querySelectorAll('[data-set-odt]').forEach(sel => {
+    sel.onchange = async () => {
+      const { error } = await sb.from('lavorazioni').update({ odontotecnico: sel.value || null }).eq('id', sel.dataset.setOdt);
+      if(error) alert('Errore: ' + error.message);
+    };
+  });
+  el.querySelectorAll('[data-riprogramma]').forEach(btn => {
+    btn.onclick = () => apriModaleRiprogramma(btn.dataset.riprogramma, () => caricaLavorazioniLab(profilo));
+  });
+  el.querySelectorAll('[data-agg-materiale]').forEach(btn => {
+    btn.onclick = () => apriModaleMateriale(btn.dataset.aggMateriale, profilo.laboratorio_id, () => caricaLavorazioniLab(profilo));
+  });
+  el.querySelectorAll('[data-set-stato]').forEach(sel => {
+    sel.onchange = async () => {
+      const aggiornamento = { stato_lab: sel.value };
+      if(sel.value === 'in_consegna') aggiornamento.data_in_consegna = new Date().toISOString().slice(0,10);
+      const { error } = await sb.from('lavorazioni').update(aggiornamento).eq('id', sel.dataset.setStato);
+      if(error) alert('Errore: ' + error.message);
+    };
+  });
+  el.querySelectorAll('[data-accetta-consegna]').forEach(btn => {
+    btn.onclick = async () => {
+      const { data: job } = await sb.from('lavorazioni').select('data_consegna_richiesta').eq('id', btn.dataset.accettaConsegna).single();
+      const { error } = await sb.from('lavorazioni').update({
+        consegna_stato: 'accettata',
+        data_consegna_confermata: job.data_consegna_richiesta
+      }).eq('id', btn.dataset.accettaConsegna);
+      if(error){ alert('Errore: ' + error.message); return; }
+      caricaLavorazioniLab(profilo);
+    };
+  });
+}
+
+/* ---------- LABORATORIO: LISTINO PREZZI ---------- */
+async function renderListinoPrezzi(profilo){
+  const content = document.getElementById('content');
+  const { data: collegamenti } = await sb.from('collegamenti')
+    .select('studio_id, studi(nome)').eq('laboratorio_id', profilo.laboratorio_id).eq('stato', 'attivo');
+
+  content.innerHTML = `
+    <h1>Listino prezzi</h1>
+    <p class="lead">Prezzo per tipo di lavoro, personalizzabile per ogni studio. Lo studio non vede mai questi importi.</p>
+    <div class="field" style="max-width:320px;margin-bottom:18px;">
+      <label>Studio</label>
+      <select id="listino-studio">
+        <option value="__base__">— Listino base (per i nuovi studi) —</option>
+        ${(collegamenti || []).map(c => `<option value="${c.studio_id}">${c.studi.nome}</option>`).join('')}
+      </select>
+    </div>
+    <p style="font-size:12px;color:var(--muted);margin-top:-12px;margin-bottom:16px;">Il "Listino base" viene copiato automaticamente in ogni nuovo studio che si collega a questo laboratorio.</p>
+    <div id="tabella-listino"><p class="empty">Caricamento…</p></div>
+  `;
+
+  document.getElementById('listino-studio').onchange = (e) => caricaListino(profilo, e.target.value);
+  caricaListino(profilo, '__base__');
+}
+
+async function caricaListino(profilo, studioId){
+  const el = document.getElementById('tabella-listino');
+  const { data: macros } = await sb.from('tipi_lavoro_macro').select('nome, tipi_lavoro_micro(nome)').eq('laboratorio_id', profilo.laboratorio_id).order('nome');
+  if(!macros || macros.length === 0){ el.innerHTML = `<p class="empty">Nessuna categoria impostata: vai su Impostazioni per crearne.</p>`; return; }
+
+  const tabella = studioId === '__base__' ? 'listino_base' : 'listino_prezzi';
+  let query = sb.from(tabella).select('tipo_macro, tipo_micro, prezzo').eq('laboratorio_id', profilo.laboratorio_id);
+  if(studioId !== '__base__') query = query.eq('studio_id', studioId);
+  const { data: prezzi } = await query;
+  const mappaPrezzi = {};
+  (prezzi || []).forEach(p => { mappaPrezzi[`${p.tipo_macro}||${p.tipo_micro}`] = p.prezzo; });
+
+  const righe = [];
+  macros.forEach(m => (m.tipi_lavoro_micro || []).forEach(mi => righe.push({ macro: m.nome, micro: mi.nome })));
+
+  el.innerHTML = `
+    <table><thead><tr><th>Categoria</th><th>Tipo di lavoro</th><th>Prezzo (€)</th></tr></thead><tbody>
+      ${righe.map(r => {
+        const p = mappaPrezzi[`${r.macro}||${r.micro}`];
+        return `<tr><td>${r.macro}</td><td>${r.micro}</td>
+          <td><input type="number" min="0" step="1" class="inline-num" value="${p!=null?p:''}" placeholder="—" data-macro="${r.macro}" data-micro="${r.micro}"></td></tr>`;
+      }).join('')}
+      ${righe.length===0 ? `<tr><td colspan="3" class="empty">Nessun tipo di lavoro impostato.</td></tr>` : ''}
+    </tbody></table>
+  `;
+
+  el.querySelectorAll('input[data-macro]').forEach(input => {
+    input.onchange = async () => {
+      const prezzo = input.value === '' ? null : parseFloat(input.value);
+      const riga = { laboratorio_id: profilo.laboratorio_id, tipo_macro: input.dataset.macro, tipo_micro: input.dataset.micro, prezzo };
+      if(tabella === 'listino_prezzi') riga.studio_id = studioId;
+      const conflictCols = tabella === 'listino_prezzi' ? 'laboratorio_id,studio_id,tipo_macro,tipo_micro' : 'laboratorio_id,tipo_macro,tipo_micro';
+      const { error } = await sb.from(tabella).upsert(riga, { onConflict: conflictCols });
+      if(error) alert('Errore salvataggio: ' + error.message);
+    };
+  });
+}
+
+/* ---------- LABORATORIO: IMPOSTAZIONI ---------- */
+async function renderImpostazioni(profilo){
+  const content = document.getElementById('content');
+  content.innerHTML = `
+    <h1>Impostazioni</h1>
+    <p class="lead">Le voci qui definite popolano i menu a tendina usati dagli studi collegati a questo laboratorio.</p>
+
+    <div class="card">
+      <h3 style="margin-top:0;font-size:13.5px;">Dati fabbricante</h3>
+      <p style="font-size:12px;color:var(--muted);margin-top:-6px;">Compariranno nei documenti generati (dichiarazione di conformità, ecc.).</p>
+      <div class="form-grid">
+        <div class="field"><label>Ragione sociale</label><input id="df-ragione"></div>
+        <div class="field"><label>Indirizzo</label><input id="df-indirizzo"></div>
+        <div class="field"><label>Partita IVA</label><input id="df-piva"></div>
+      </div>
+      <button class="btn" id="btn-salva-fabbricante" style="margin-top:12px;">Salva</button>
+      <div class="msg" id="fabbricante-msg"></div>
+    </div>
+
+    <div class="card">
+      <h3 style="margin-top:0;font-size:13.5px;">Categorie e tipi di lavoro</h3>
+      <div id="lista-tipi-lavoro"><p class="empty">Caricamento…</p></div>
+      <div class="form-grid" style="margin-top:12px;">
+        <div class="field"><label>Nuova categoria</label><input id="tl-nuova-macro" placeholder="Es. Protesi fissa"></div>
+        <div></div><div></div>
+      </div>
+      <button class="btn secondary" id="btn-agg-macro" style="margin-top:8px;">+ Aggiungi categoria</button>
+    </div>
+
+    <div id="sezioni-liste"></div>
+  `;
+
+  const { data: df } = await sb.from('dati_fabbricante').select('*').eq('laboratorio_id', profilo.laboratorio_id).maybeSingle();
+  if(df){
+    document.getElementById('df-ragione').value = df.ragione_sociale || '';
+    document.getElementById('df-indirizzo').value = df.indirizzo || '';
+    document.getElementById('df-piva').value = df.piva || '';
+  }
+  document.getElementById('btn-salva-fabbricante').onclick = async () => {
+    const ragione_sociale = document.getElementById('df-ragione').value.trim();
+    const indirizzo = document.getElementById('df-indirizzo').value.trim();
+    const piva = document.getElementById('df-piva').value.trim();
+    const { error } = await sb.from('dati_fabbricante').upsert({ laboratorio_id: profilo.laboratorio_id, ragione_sociale, indirizzo, piva });
+    if(error){ mostraMsg('fabbricante-msg', 'Errore: ' + error.message, 'error'); return; }
+    mostraMsg('fabbricante-msg', 'Salvato.', 'ok');
+  };
+
+  caricaTipiLavoro(profilo);
+  document.getElementById('btn-agg-macro').onclick = async () => {
+    const input = document.getElementById('tl-nuova-macro');
+    const nome = input.value.trim();
+    if(!nome) return;
+    const { error } = await sb.from('tipi_lavoro_macro').insert({ laboratorio_id: profilo.laboratorio_id, nome });
+    if(error){ alert('Errore: ' + error.message); return; }
+    input.value = '';
+    caricaTipiLavoro(profilo);
+  };
+
+  const listeEl = document.getElementById('sezioni-liste');
+  renderListaSemplice(profilo, 'colori', 'Colori', listeEl);
+  renderListaSemplice(profilo, 'materiali_catalogo', 'Materiali', listeEl);
+  renderListaSemplice(profilo, 'odontotecnici', 'Odontotecnici', listeEl);
+  renderListaSemplice(profilo, 'tipi_problema', 'Tipi di problema (segnalazioni)', listeEl);
+}
+
+async function caricaTipiLavoro(profilo){
+  const el = document.getElementById('lista-tipi-lavoro');
+  const { data: macros } = await sb.from('tipi_lavoro_macro').select('id, nome, tipi_lavoro_micro(id, nome)').eq('laboratorio_id', profilo.laboratorio_id).order('nome');
+  if(!macros || macros.length === 0){ el.innerHTML = `<p class="empty">Nessuna categoria ancora creata.</p>`; return; }
+
+  el.innerHTML = macros.map(m => `
+    <div style="border:1px solid var(--line);border-radius:8px;padding:12px;margin-bottom:10px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <strong>${m.nome}</strong>
+        <button class="btn danger" data-rm-macro="${m.id}">Elimina categoria</button>
+      </div>
+      <div style="margin-top:8px;">
+        ${(m.tipi_lavoro_micro || []).map(mi => `<span class="badge off" style="margin:2px 4px 2px 0;">${mi.nome} <button data-rm-micro="${mi.id}" style="all:unset;cursor:pointer;margin-left:6px;color:var(--block);font-weight:700;">×</button></span>`).join('') || '<span style="font-size:12px;color:var(--muted);">Nessuna sotto-voce.</span>'}
+      </div>
+      <div style="display:flex;gap:8px;margin-top:10px;">
+        <input type="text" class="inline-text" placeholder="Nuova sotto-voce…" data-nuovo-micro="${m.id}">
+        <button class="btn secondary" data-agg-micro="${m.id}">Aggiungi</button>
+      </div>
+    </div>
+  `).join('');
+
+  el.querySelectorAll('[data-rm-macro]').forEach(btn => {
+    btn.onclick = async () => { await sb.from('tipi_lavoro_macro').delete().eq('id', btn.dataset.rmMacro); caricaTipiLavoro(profilo); };
+  });
+  el.querySelectorAll('[data-rm-micro]').forEach(btn => {
+    btn.onclick = async () => { await sb.from('tipi_lavoro_micro').delete().eq('id', btn.dataset.rmMicro); caricaTipiLavoro(profilo); };
+  });
+  el.querySelectorAll('[data-agg-micro]').forEach(btn => {
+    btn.onclick = async () => {
+      const input = el.querySelector(`[data-nuovo-micro="${btn.dataset.aggMicro}"]`);
+      const nome = input.value.trim();
+      if(!nome) return;
+      const { error } = await sb.from('tipi_lavoro_micro').insert({ macro_id: btn.dataset.aggMicro, nome });
+      if(error){ alert('Errore: ' + error.message); return; }
+      caricaTipiLavoro(profilo);
+    };
+  });
+}
+
+async function renderListaSemplice(profilo, tabella, titolo, containerEl){
+  const div = document.createElement('div');
+  div.className = 'card';
+  div.innerHTML = `
+    <h3 style="margin-top:0;font-size:13.5px;">${titolo}</h3>
+    <div id="tags-${tabella}"><p class="empty">Caricamento…</p></div>
+    <div class="form-grid" style="margin-top:10px;">
+      <div class="field"><label>Nuova voce</label><input id="nuova-${tabella}" placeholder="Scrivi e aggiungi…"></div>
+      <div></div><div></div>
+    </div>
+    <button class="btn secondary" id="btn-agg-${tabella}" style="margin-top:8px;">+ Aggiungi</button>
+  `;
+  containerEl.appendChild(div);
+
+  async function ricarica(){
+    const { data } = await sb.from(tabella).select('id, nome').eq('laboratorio_id', profilo.laboratorio_id).order('nome');
+    const tagsEl = document.getElementById(`tags-${tabella}`);
+    tagsEl.innerHTML = (data && data.length)
+      ? data.map(r => `<span class="badge off" style="margin:2px 4px 2px 0;">${r.nome} <button data-rm="${r.id}" style="all:unset;cursor:pointer;margin-left:6px;color:var(--block);font-weight:700;">×</button></span>`).join('')
+      : `<p class="empty">Nessuna voce.</p>`;
+    tagsEl.querySelectorAll('[data-rm]').forEach(btn => {
+      btn.onclick = async () => { await sb.from(tabella).delete().eq('id', btn.dataset.rm); ricarica(); };
+    });
+  }
+  document.getElementById(`btn-agg-${tabella}`).onclick = async () => {
+    const input = document.getElementById(`nuova-${tabella}`);
+    const nome = input.value.trim();
+    if(!nome) return;
+    const { error } = await sb.from(tabella).insert({ laboratorio_id: profilo.laboratorio_id, nome });
+    if(error){ alert('Errore: ' + error.message); return; }
+    input.value = '';
+    ricarica();
+  };
+  ricarica();
+}
+
+/* ---------- DOCUMENTI (Prescrizione, Dichiarazione, Tracciabilità, Materiali, Istruzioni, Verbale) ---------- */
+const TITOLI_DOC = {
+  prescrizione: 'Prescrizione',
+  dichiarazione: 'Dichiarazione di Conformità',
+  tracciabilita: 'Scheda di Identificazione e Tracciabilità',
+  materiali: 'Scheda Materiali',
+  istruzioni: "Istruzioni per l'Uso",
+  verbale: 'Verbale di Consegna'
+};
+
+function requisitiDocumento(tipo, job){
+  const materialiOk = job.materiali_lavorazione && job.materiali_lavorazione.length > 0;
+  switch(tipo){
+    case 'prescrizione':
+      return [
+        {label:'Paziente identificato', ok: !!(job.cognome_paziente && job.nome_paziente)},
+        {label:'Medico prescrittore', ok: !!job.medico_id},
+        {label:'Tipo di lavoro e colore', ok: !!(job.tipo_macro && job.tipo_micro && job.colore)},
+        {label:'Data di consegna richiesta', ok: !!job.data_consegna_richiesta}
+      ];
+    case 'dichiarazione':
+    case 'tracciabilita':
+      return [
+        {label:'Materiali e lotti registrati', ok: materialiOk},
+        {label:'Odontotecnico designato', ok: !!job.odontotecnico},
+        {label:'Lavorazione uscita dal laboratorio', ok: !!job.data_in_consegna}
+      ];
+    case 'materiali':
+      return [{label:'Almeno un materiale con lotto registrato', ok: materialiOk}];
+    case 'istruzioni':
+      return [{label:'Tipo di dispositivo identificato', ok: !!(job.tipo_macro && job.tipo_micro)}];
+    case 'verbale':
+      return [
+        {label:'Lavorazione uscita dal laboratorio', ok: !!job.data_in_consegna},
+        {label:'Consegna confermata dallo studio', ok: job.stato_studio==='consegnato' && !!job.data_chiusura}
+      ];
+    default: return [];
+  }
+}
+
+function intestazioneFabbricanteHtml(fabbricante){
+  if(!fabbricante) return `<p style="color:#b23a2e;">Dati fabbricante non impostati (il laboratorio deve compilarli in "Impostazioni").</p>`;
+  return `<table style="width:100%;border-collapse:collapse;margin-bottom:16px;">
+    <tr><td style="color:#777;width:180px;padding:5px 0;">Fabbricante</td><td>${fabbricante.ragione_sociale||''}</td></tr>
+    <tr><td style="color:#777;padding:5px 0;">Indirizzo</td><td>${fabbricante.indirizzo||''}</td></tr>
+    <tr><td style="color:#777;padding:5px 0;">Partita IVA</td><td>${fabbricante.piva||''}</td></tr>
+  </table>`;
+}
+function materialiHtml(job){
+  if(!job.materiali_lavorazione || job.materiali_lavorazione.length===0) return `<p>Nessun materiale registrato.</p>`;
+  return `<table style="width:100%;border-collapse:collapse;">
+    <tr><td style="font-weight:700;border-bottom:2px solid #333;padding:5px 0;">Materiale</td><td style="font-weight:700;border-bottom:2px solid #333;padding:5px 0;">Lotto</td></tr>
+    ${job.materiali_lavorazione.map(m => `<tr><td style="padding:5px 0;border-bottom:1px solid #eee;">${m.materiale}</td><td style="padding:5px 0;border-bottom:1px solid #eee;">${m.lotto}</td></tr>`).join('')}
+  </table>`;
+}
+function riga(label, valore){
+  return `<tr><td style="color:#777;width:220px;padding:6px 0;vertical-align:top;">${label}</td><td style="padding:6px 0;">${valore}</td></tr>`;
+}
+
+function generaHtmlDocumento(tipo, job, fabbricante){
+  const medicoLabel = job.medici ? `${job.medici.nome} (Iscr. Albo ${job.medici.numero_iscrizione_completo})` : '—';
+  if(tipo === 'prescrizione'){
+    return `
+      <h2 style="margin-top:0;">Prescrizione</h2>
+      <div style="color:#777;font-size:11px;margin-bottom:16px;">ID pratica ${job.id}</div>
+      <table style="width:100%;border-collapse:collapse;">
+        ${riga('Studio ordinante', job.studi?.nome || '—')}
+        ${riga('Medico prescrittore', medicoLabel)}
+        ${riga('Paziente', `${job.cognome_paziente} ${job.nome_paziente}`)}
+        ${riga('Categoria e tipo di lavoro', `${job.tipo_macro} — ${job.tipo_micro}`)}
+        ${riga('Colore richiesto', job.colore)}
+        ${riga('Data di consegna richiesta', job.data_consegna_richiesta)}
+        ${riga('Note cliniche', job.note || '—')}
+      </table>
+      <p style="margin-top:16px;">Il medico prescrittore sopra indicato ordina la fabbricazione su misura del dispositivo qui descritto, secondo le caratteristiche specificate, per il paziente identificato.</p>
+      <h3 style="font-size:13px;margin-top:18px;">Firma</h3>
+      ${(job.firme && job.firme.length) ? `
+        <table style="width:100%;border-collapse:collapse;">
+          ${riga('Firmato da', job.firme[job.firme.length-1].firmatario_nome)}
+          ${riga('Data e ora firma', new Date(job.firme[job.firme.length-1].firmato_at).toLocaleString('it-IT'))}
+          ${riga('Identificativo firma', job.firme[job.firme.length-1].hash)}
+        </table>
+        <p style="font-size:10.5px;color:#999;">Firma elettronica semplice: azione autenticata associata alle credenziali personali del firmatario. Non equivale a firma elettronica qualificata eIDAS.</p>
+      ` : `<p style="color:#b23a2e;font-weight:600;">Prescrizione non ancora firmata dal medico prescrittore.</p>`}
+      <div style="margin-top:24px;font-size:10.5px;color:#999;">Documento generato automaticamente da Nuovalab.</div>`;
+  }
+  if(tipo === 'dichiarazione'){
+    return `
+      <h2 style="margin-top:0;">Dichiarazione di Conformità — Dispositivo Medico su Misura</h2>
+      <div style="color:#777;font-size:11px;margin-bottom:16px;">Ai sensi del Regolamento (UE) 2017/745 (MDR), Allegato XIII, Sezione 1</div>
+      ${intestazioneFabbricanteHtml(fabbricante)}
+      <table style="width:100%;border-collapse:collapse;">
+        ${riga('ID pratica', job.id)}
+        ${riga('Studio ordinante', job.studi?.nome || '—')}
+        ${riga('Paziente destinatario esclusivo', `${job.cognome_paziente} ${job.nome_paziente}`)}
+        ${riga('Medico prescrittore', medicoLabel)}
+        ${riga('Caratteristiche specifiche da prescrizione', `${job.tipo_macro} — ${job.tipo_micro}, colore ${job.colore}`)}
+        ${riga('Materiali utilizzati', (job.materiali_lavorazione||[]).map(m=>`${m.materiale} (lotto ${m.lotto})`).join('; ') || 'non specificato')}
+        ${riga('Odontotecnico designato', job.odontotecnico || 'non specificato')}
+        ${riga('Data di consegna', job.data_consegna_confermata || job.data_consegna_richiesta)}
+      </table>
+      <p style="margin-top:16px;">Si dichiara che il dispositivo sopra descritto è stato fabbricato su misura secondo le caratteristiche indicate nella prescrizione, ed è destinato all'uso esclusivo del paziente sopra identificato.</p>
+      <p>Si dichiara inoltre che il dispositivo è conforme ai requisiti generali di sicurezza e prestazione applicabili di cui all'Allegato I del Regolamento (UE) 2017/745.</p>
+      <p>Il dispositivo non contiene né incorpora sostanze medicinali, derivati del sangue o plasma umano, né tessuti o cellule di origine umana o animale.</p>
+      <div style="margin-top:24px;font-size:10.5px;color:#999;">Documento generato automaticamente da Nuovalab. Conservazione minima 10 anni (15 per dispositivi impiantabili) ai sensi dell'Allegato XIII, punto 4.</div>`;
+  }
+  if(tipo === 'tracciabilita'){
+    return `
+      <h2 style="margin-top:0;">Scheda di Identificazione e Tracciabilità</h2>
+      <div style="color:#777;font-size:11px;margin-bottom:16px;">ID pratica ${job.id}</div>
+      ${intestazioneFabbricanteHtml(fabbricante)}
+      <table style="width:100%;border-collapse:collapse;">
+        ${riga('Studio ordinante', job.studi?.nome || '—')}
+        ${riga('Paziente', `${job.cognome_paziente} ${job.nome_paziente}`)}
+        ${riga('Medico prescrittore', medicoLabel)}
+        ${riga('Dispositivo', `${job.tipo_macro} — ${job.tipo_micro}`)}
+        ${riga('Colore', job.colore)}
+        ${riga('Odontotecnico designato', job.odontotecnico || 'non specificato')}
+        ${riga('Data richiesta di consegna', job.data_consegna_richiesta)}
+        ${riga('Data uscita dal laboratorio', job.data_in_consegna || '—')}
+        ${riga('Data chiusura pratica', job.data_chiusura || '—')}
+      </table>
+      <h3 style="font-size:13px;margin-top:18px;">Materiali utilizzati</h3>
+      ${materialiHtml(job)}
+      <div style="margin-top:24px;font-size:10.5px;color:#999;">Documento generato automaticamente da Nuovalab.</div>`;
+  }
+  if(tipo === 'materiali'){
+    return `
+      <h2 style="margin-top:0;">Scheda Materiali</h2>
+      <div style="color:#777;font-size:11px;margin-bottom:16px;">ID pratica ${job.id} — ${job.tipo_macro} — ${job.tipo_micro}</div>
+      ${intestazioneFabbricanteHtml(fabbricante)}
+      ${materialiHtml(job)}
+      <p style="margin-top:16px;">Elenco dei materiali e dei relativi lotti utilizzati per la fabbricazione del dispositivo relativo alla pratica ${job.id}, a fini di tracciabilità.</p>
+      <div style="margin-top:24px;font-size:10.5px;color:#999;">Documento generato automaticamente da Nuovalab.</div>`;
+  }
+  if(tipo === 'istruzioni'){
+    const ISTRUZIONI = {
+      'Protesi fissa': "Evitare cibi eccessivamente duri o appiccicosi nelle prime 24 ore. Mantenere una corretta igiene orale quotidiana. In caso di dolore persistente o mobilità del manufatto, contattare lo studio.",
+      'Implantoprotesi': "Seguire le indicazioni del medico per il carico occlusale nei primi giorni. Effettuare controlli periodici della componentistica implantare.",
+      'Protesi mobile': "Rimuovere e pulire il dispositivo dopo ogni pasto. Non indossare durante il sonno se non diversamente indicato dal medico."
+    };
+    const testo = ISTRUZIONI[job.tipo_macro] || "Attenersi alle indicazioni specifiche fornite dal medico prescrittore per questo dispositivo personalizzato.";
+    return `
+      <h2 style="margin-top:0;">Istruzioni per l'Uso</h2>
+      <div style="color:#777;font-size:11px;margin-bottom:16px;">ID pratica ${job.id} — ${job.tipo_macro} — ${job.tipo_micro}</div>
+      ${intestazioneFabbricanteHtml(fabbricante)}
+      <table style="width:100%;border-collapse:collapse;">
+        ${riga('Paziente', `${job.cognome_paziente} ${job.nome_paziente}`)}
+        ${riga('Dispositivo', `${job.tipo_macro} — ${job.tipo_micro}, colore ${job.colore}`)}
+      </table>
+      <p style="margin-top:16px;">${testo}</p>
+      <p>Il dispositivo è marcato come "dispositivo su misura" ai sensi del Regolamento (UE) 2017/745 e non reca marcatura CE, come previsto dall'art. 21 dello stesso Regolamento.</p>
+      <div style="margin-top:24px;font-size:10.5px;color:#999;">Documento generato automaticamente da Nuovalab.</div>`;
+  }
+  if(tipo === 'verbale'){
+    return `
+      <h2 style="margin-top:0;">Verbale di Consegna</h2>
+      <div style="color:#777;font-size:11px;margin-bottom:16px;">ID pratica ${job.id}</div>
+      ${intestazioneFabbricanteHtml(fabbricante)}
+      <table style="width:100%;border-collapse:collapse;">
+        ${riga('Studio', job.studi?.nome || '—')}
+        ${riga('Paziente', `${job.cognome_paziente} ${job.nome_paziente}`)}
+        ${riga('Dispositivo', `${job.tipo_macro} — ${job.tipo_micro}`)}
+        ${riga('Data uscita dal laboratorio', job.data_in_consegna || '—')}
+        ${riga('Data presa in carico dallo studio', job.data_chiusura || '—')}
+        ${riga('Esito verifica alla consegna', job.stato_studio==='consegnato' ? 'Consegnato conforme' : 'In attesa di conferma')}
+      </table>
+      <p style="margin-top:16px;">Il presente verbale attesta la consegna del dispositivo su misura sopra identificato allo studio ordinante, per la successiva applicazione al paziente.</p>
+      <div style="margin-top:24px;font-size:10.5px;color:#999;">Documento generato automaticamente da Nuovalab.</div>`;
+  }
+  return '<p>Documento non riconosciuto.</p>';
+}
+
+function mostraDatiMancanti(requisiti){
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;z-index:999;';
+  wrap.innerHTML = `
+    <div class="box" style="width:380px;">
+      <h1 style="font-size:16px;">Documento non ancora emettibile</h1>
+      <p style="font-size:13px;">Mancano alcuni dati obbligatori:</p>
+      <div style="margin:12px 0;display:flex;flex-direction:column;gap:8px;">
+        ${requisiti.map(r => `<span class="badge ${r.ok?'ok':'off'}"><span class="dot"></span>${r.label}</span>`).join('')}
+      </div>
+      <button class="btn secondary block" id="dm-chiudi">Chiudi</button>
+    </div>`;
+  document.body.appendChild(wrap);
+  document.getElementById('dm-chiudi').onclick = () => wrap.remove();
+}
+
+function mostraAnteprimaDocumento(titolo, html){
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;z-index:999;padding:20px;';
+  wrap.innerHTML = `
+    <div class="box" style="width:700px;max-width:100%;max-height:85vh;display:flex;flex-direction:column;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+        <h1 style="font-size:16px;margin:0;">${titolo}</h1>
+        <button class="btn secondary" id="doc-chiudi">✕ Chiudi</button>
+      </div>
+      <div style="overflow-y:auto;border:1px solid var(--line);border-radius:8px;padding:20px;background:#fff;flex:1;font-family:Arial,Helvetica,sans-serif;font-size:13px;">${html}</div>
+      <div style="margin-top:12px;"><button class="btn" id="doc-stampa">🖨 Stampa / Salva come PDF</button></div>
+    </div>`;
+  document.body.appendChild(wrap);
+  document.getElementById('doc-chiudi').onclick = () => wrap.remove();
+  document.getElementById('doc-stampa').onclick = () => {
+    document.getElementById('print-area').innerHTML = html;
+    window.print();
+  };
+}
+
+async function apriDocumento(tipo, jobId){
+  const { data: job, error } = await sb.from('lavorazioni')
+    .select('*, studi(nome, sigla), medici(nome, numero_iscrizione_completo), materiali_lavorazione(materiale, lotto), firme(firmatario_nome, ruolo, hash, firmato_at)')
+    .eq('id', jobId).single();
+  if(error){ alert('Errore: ' + error.message); return; }
+  const requisiti = requisitiDocumento(tipo, job);
+  if(!requisiti.every(r => r.ok)){ mostraDatiMancanti(requisiti); return; }
+  const { data: fabbricante } = await sb.from('dati_fabbricante').select('*').eq('laboratorio_id', job.laboratorio_id).maybeSingle();
+  const html = generaHtmlDocumento(tipo, job, fabbricante);
+  mostraAnteprimaDocumento(TITOLI_DOC[tipo], html);
+}
+
+function docButtonsHtml(jobId){
+  return Object.keys(TITOLI_DOC).map(tipo =>
+    `<button class="btn secondary" data-doc="${tipo}:${jobId}" style="margin:2px 3px 2px 0;font-size:11px;padding:4px 8px;">${TITOLI_DOC[tipo]}</button>`
+  ).join('');
+}
+function bindDocButtons(container){
+  container.querySelectorAll('[data-doc]').forEach(btn => {
+    btn.onclick = () => {
+      const [tipo, jobId] = btn.dataset.doc.split(':');
+      apriDocumento(tipo, jobId);
+    };
+  });
+}
+
+/* ---------- STUDIO: REGISTRO PAZIENTI ---------- */
+async function renderPazienti(profilo){
+  const content = document.getElementById('content');
+  content.innerHTML = `
+    <h1>Pazienti</h1>
+    <p class="lead">Ogni paziente ha un ID stabile: se torna per una nuova lavorazione, selezionalo invece di ricrearlo.</p>
+    <div class="card">
+      <h3 style="margin-top:0;font-size:13.5px;">+ Nuovo paziente</h3>
+      <div class="form-grid">
+        <div class="field"><label>Cognome</label><input id="pz-cognome"></div>
+        <div class="field"><label>Nome</label><input id="pz-nome"></div>
+        <div class="field"><label>Data di nascita</label><input id="pz-nascita" type="date"></div>
+      </div>
+      <div class="field" style="max-width:280px;margin-top:10px;"><label>Riferimento cartella (facoltativo)</label><input id="pz-cartella"></div>
+      <button class="btn" id="btn-crea-paziente" style="margin-top:12px;">Crea paziente</button>
+      <div class="msg" id="paziente-msg"></div>
+    </div>
+    <div id="tabella-pazienti"><p class="empty">Caricamento…</p></div>
+  `;
+  document.getElementById('btn-crea-paziente').onclick = async () => {
+    const cognome = document.getElementById('pz-cognome').value.trim();
+    const nome = document.getElementById('pz-nome').value.trim();
+    const data_nascita = document.getElementById('pz-nascita').value || null;
+    const riferimento_cartella = document.getElementById('pz-cartella').value.trim() || null;
+    if(!cognome || !nome){ mostraMsg('paziente-msg', 'Cognome e nome sono obbligatori.', 'error'); return; }
+    const { error } = await sb.from('pazienti').insert({ studio_id: profilo.studio_id, cognome, nome, data_nascita, riferimento_cartella });
+    if(error){ mostraMsg('paziente-msg', 'Errore: ' + error.message, 'error'); return; }
+    document.getElementById('pz-cognome').value = '';
+    document.getElementById('pz-nome').value = '';
+    document.getElementById('pz-nascita').value = '';
+    document.getElementById('pz-cartella').value = '';
+    mostraMsg('paziente-msg', 'Paziente creato.', 'ok');
+    caricaPazienti(profilo);
+  };
+  caricaPazienti(profilo);
+}
+
+async function caricaPazienti(profilo){
+  const el = document.getElementById('tabella-pazienti');
+  const { data, error } = await sb.from('pazienti').select('*').eq('studio_id', profilo.studio_id).order('cognome');
+  if(error){ el.innerHTML = `<p class="empty">Errore: ${error.message}</p>`; return; }
+  if(!data || data.length === 0){ el.innerHTML = `<p class="empty">Nessun paziente ancora registrato.</p>`; return; }
+  el.innerHTML = `
+    <table><thead><tr><th>Cognome</th><th>Nome</th><th>Data nascita</th><th>Cartella</th></tr></thead><tbody>
+      ${data.map(p => `<tr><td>${p.cognome}</td><td>${p.nome}</td><td>${p.data_nascita || '—'}</td><td>${p.riferimento_cartella || '—'}</td></tr>`).join('')}
+    </tbody></table>
+  `;
+}
+
+/* ---------- ARCHIVIO (Laboratorio e Studio) — pratiche consegnate ---------- */
+async function renderArchivioLab(profilo){
+  const content = document.getElementById('content');
+  content.innerHTML = `<h1>Archivio</h1><p class="lead">Pratiche consegnate, conservate per almeno 10 anni ai sensi dell'Allegato XIII del Regolamento (UE) 2017/745.</p><div id="lista-archivio"><p class="empty">Caricamento…</p></div>`;
+  const el = document.getElementById('lista-archivio');
+  const { data, error } = await sb.from('lavorazioni')
+    .select('id, cognome_paziente, nome_paziente, tipo_macro, tipo_micro, data_chiusura, studi(nome)')
+    .eq('laboratorio_id', profilo.laboratorio_id).eq('stato_studio', 'consegnato').order('data_chiusura', { ascending: false });
+  if(error){ el.innerHTML = `<p class="empty">Errore: ${error.message}</p>`; return; }
+  if(!data || data.length === 0){ el.innerHTML = `<p class="empty">Nessuna pratica ancora archiviata.</p>`; return; }
+  el.innerHTML = `
+    <table><thead><tr><th>ID</th><th>Studio</th><th>Paziente</th><th>Lavoro</th><th>Data chiusura</th><th>Documenti</th></tr></thead><tbody>
+      ${data.map(j => `<tr><td>${j.id}</td><td>${j.studi?.nome||'—'}</td><td>${j.cognome_paziente} ${j.nome_paziente}</td><td>${j.tipo_macro} › ${j.tipo_micro}</td><td>${j.data_chiusura}</td><td style="max-width:220px;">${docButtonsHtml(j.id)}</td></tr>`).join('')}
+    </tbody></table>
+  `;
+  bindDocButtons(el);
+}
+
+async function renderArchivioStudio(profilo){
+  const content = document.getElementById('content');
+  content.innerHTML = `<h1>Archivio</h1><p class="lead">Le tue pratiche consegnate.</p><div id="lista-archivio-studio"><p class="empty">Caricamento…</p></div>`;
+  const el = document.getElementById('lista-archivio-studio');
+  const { data, error } = await sb.from('lavorazioni')
+    .select('id, cognome_paziente, nome_paziente, tipo_macro, tipo_micro, data_chiusura, medici(nome), laboratori(nome)')
+    .eq('studio_id', profilo.studio_id).eq('stato_studio', 'consegnato').order('data_chiusura', { ascending: false });
+  if(error){ el.innerHTML = `<p class="empty">Errore: ${error.message}</p>`; return; }
+  if(!data || data.length === 0){ el.innerHTML = `<p class="empty">Nessuna pratica ancora archiviata.</p>`; return; }
+  el.innerHTML = `
+    <table><thead><tr><th>ID</th><th>Paziente</th><th>Medico</th><th>Laboratorio</th><th>Lavoro</th><th>Data chiusura</th><th>Documenti</th></tr></thead><tbody>
+      ${data.map(j => `<tr><td>${j.id}</td><td>${j.cognome_paziente} ${j.nome_paziente}</td><td>${j.medici?.nome||'—'}</td><td>${j.laboratori?.nome||'—'}</td><td>${j.tipo_macro} › ${j.tipo_micro}</td><td>${j.data_chiusura}</td><td style="max-width:220px;">${docButtonsHtml(j.id)}</td></tr>`).join('')}
+    </tbody></table>
+  `;
+  bindDocButtons(el);
+}
+
+/* ---------- LABORATORIO: CONSUNTIVO & FATTURAZIONE ---------- */
+async function renderConsuntivo(profilo){
+  const content = document.getElementById('content');
+  const { data: collegamenti } = await sb.from('collegamenti').select('studio_id, studi(nome)').eq('laboratorio_id', profilo.laboratorio_id).eq('stato', 'attivo');
+  content.innerHTML = `
+    <h1>Consuntivo & fatturazione</h1>
+    <p class="lead">Elenco lavori usciti dal laboratorio nel periodo, con relativo prezzo.</p>
+    <div class="card">
+      <div class="form-grid">
+        <div class="field"><label>Studio</label>
+          <select id="cs-studio"><option value="">Seleziona studio…</option>${(collegamenti||[]).map(c => `<option value="${c.studio_id}">${c.studi.nome}</option>`).join('')}</select>
+        </div>
+        <div class="field"><label>Da</label><input id="cs-da" type="date"></div>
+        <div class="field"><label>A</label><input id="cs-a" type="date"></div>
+      </div>
+      <button class="btn" id="btn-genera-consuntivo" style="margin-top:12px;">Genera consuntivo</button>
+    </div>
+    <div id="risultato-consuntivo"></div>
+  `;
+  document.getElementById('btn-genera-consuntivo').onclick = async () => {
+    const studioId = document.getElementById('cs-studio').value;
+    const da = document.getElementById('cs-da').value;
+    const a = document.getElementById('cs-a').value;
+    if(!studioId || !da || !a){ alert('Seleziona studio, data di inizio e data di fine.'); return; }
+    const { data: lavori, error } = await sb.from('lavorazioni')
+      .select('id, tipo_macro, tipo_micro, data_in_consegna, stato_studio')
+      .eq('studio_id', studioId).eq('laboratorio_id', profilo.laboratorio_id)
+      .gte('data_in_consegna', da).lte('data_in_consegna', a);
+    if(error){ alert('Errore: ' + error.message); return; }
+    const { data: prezzi } = await sb.from('listino_prezzi').select('tipo_macro, tipo_micro, prezzo').eq('laboratorio_id', profilo.laboratorio_id).eq('studio_id', studioId);
+    const mappaPrezzi = {};
+    (prezzi||[]).forEach(p => { mappaPrezzi[`${p.tipo_macro}||${p.tipo_micro}`] = p.prezzo; });
+
+    const righe = (lavori||[]).map(j => ({ ...j, prezzo: mappaPrezzi[`${j.tipo_macro}||${j.tipo_micro}`] }));
+    const totale = righe.reduce((s,r) => s + (r.prezzo || 0), 0);
+
+    document.getElementById('risultato-consuntivo').innerHTML = `
+      <table style="margin-top:18px;"><thead><tr><th>ID</th><th>Lavoro</th><th>Data uscita</th><th>Confermato</th><th>Prezzo</th></tr></thead><tbody>
+        ${righe.map(r => `<tr><td>${r.id}</td><td>${r.tipo_macro} › ${r.tipo_micro}</td><td>${r.data_in_consegna}</td><td>${r.stato_studio==='consegnato'?'✓':'—'}</td><td>${r.prezzo!=null?'€ '+r.prezzo.toFixed(2):'—'}</td></tr>`).join('')}
+        ${righe.length===0?`<tr><td colspan="5" class="empty">Nessun lavoro nel periodo.</td></tr>`:''}
+      </tbody></table>
+      ${righe.length>0 ? `<p style="text-align:right;font-weight:700;margin-top:10px;">Totale: € ${totale.toFixed(2)}</p>` : ''}
+    `;
+  };
+}
+
+/* ---------- MEDICO: I MIEI PAZIENTI (con firma) ---------- */
+async function renderMedicoDashboard(profilo){
+  const content = document.getElementById('content');
+  content.innerHTML = `<h1>I miei pazienti</h1><p class="lead">Sola lettura: qui vedi solo le prescrizioni non ancora archiviate. Puoi firmare la prescrizione con le tue credenziali.</p><div id="lista-medico"><p class="empty">Caricamento…</p></div>`;
+  caricaLavoriMedico(profilo);
+}
+
+async function caricaLavoriMedico(profilo){
+  const el = document.getElementById('lista-medico');
+  const { data, error } = await sb.from('lavorazioni')
+    .select('id, cognome_paziente, nome_paziente, tipo_macro, tipo_micro, colore, data_consegna_richiesta, stato_lab, stato_studio, firme(id)')
+    .eq('medico_id', profilo.medico_id).order('created_at', { ascending: false });
+  if(error){ el.innerHTML = `<p class="empty">Errore: ${error.message}</p>`; return; }
+  const STATO_LABEL = { '': 'Da iniziare', in_lavorazione: 'In lavorazione', in_ritardo: 'In ritardo', da_rifare: 'Da rifare', in_consegna: 'In consegna' };
+  const attivi = (data||[]).filter(j => !(j.stato_studio==='consegnato' && j.firme && j.firme.length>0));
+  if(attivi.length === 0){ el.innerHTML = `<p class="empty">Nessuna prescrizione da mostrare.</p>`; return; }
+  el.innerHTML = `
+    <table><thead><tr><th>ID</th><th>Paziente</th><th>Lavoro</th><th>Consegna</th><th>Stato</th><th>Documenti</th></tr></thead><tbody>
+      ${attivi.map(j => {
+        const firmato = j.firme && j.firme.length > 0;
+        return `<tr>
+          <td>${j.id}</td>
+          <td>${j.cognome_paziente} ${j.nome_paziente}</td>
+          <td>${j.tipo_macro} › ${j.tipo_micro} · ${j.colore}</td>
+          <td>${j.data_consegna_richiesta}</td>
+          <td><span class="badge off"><span class="dot"></span>${STATO_LABEL[j.stato_lab] || j.stato_lab}</span></td>
+          <td style="max-width:280px;">
+            ${firmato ? `<span class="badge ok"><span class="dot"></span>Prescrizione firmata</span>` : `<button class="btn" data-firma="${j.id}">✍ Firma prescrizione</button>`}
+            <br>${docButtonsHtml(j.id)}
+          </td>
+        </tr>`;
+      }).join('')}
+    </tbody></table>
+  `;
+  bindDocButtons(el);
+  el.querySelectorAll('[data-firma]').forEach(btn => {
+    btn.onclick = () => apriModaleFirma(btn.dataset.firma, profilo, () => caricaLavoriMedico(profilo));
+  });
+}
+
+function apriModaleFirma(jobId, profilo, onFirmato){
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;z-index:999;';
+  wrap.innerHTML = `
+    <div class="box" style="width:380px;">
+      <h1 style="font-size:16px;">Firma prescrizione</h1>
+      <p style="font-size:13px;">Stai per firmare la Prescrizione per la pratica <strong>${jobId}</strong> con le tue credenziali. È una firma elettronica semplice, associata al tuo account personale.</p>
+      <button class="btn block" id="fm-conferma">✍ Conferma firma</button>
+      <button class="btn secondary block" id="fm-annulla" style="margin-top:6px;">Annulla</button>
+    </div>`;
+  document.body.appendChild(wrap);
+  document.getElementById('fm-annulla').onclick = () => wrap.remove();
+  document.getElementById('fm-conferma').onclick = async () => {
+    const { data: { session } } = await sb.auth.getSession();
+    const { data: medico } = await sb.from('medici').select('nome, numero_iscrizione_completo').eq('id', profilo.medico_id).single();
+    const hash = 'SIG-' + Math.random().toString(16).slice(2,10).toUpperCase();
+    const { error } = await sb.from('firme').insert({
+      lavorazione_id: jobId,
+      firmatario_id: session.user.id,
+      firmatario_nome: `${medico.nome} (Iscr. Albo ${medico.numero_iscrizione_completo})`,
+      ruolo: 'MEDICO',
+      documento: 'Prescrizione',
+      hash
+    });
+    if(error){ alert('Errore: ' + error.message); return; }
+    wrap.remove();
+    onFirmato();
+  };
+}
+
+/* ---------- CHAT (Laboratorio, Studio, Medico) ---------- */
+async function ottieniCanale(tipo, laboratorioId, studioId, medicoId){
+  let query = sb.from('canali_chat').select('id').eq('tipo', tipo).eq('laboratorio_id', laboratorioId);
+  query = studioId ? query.eq('studio_id', studioId) : query.is('studio_id', null);
+  query = medicoId ? query.eq('medico_id', medicoId) : query.is('medico_id', null);
+  const { data } = await query.maybeSingle();
+  if(data) return data.id;
+  const { data: nuovo, error } = await sb.from('canali_chat')
+    .insert({ tipo, laboratorio_id: laboratorioId, studio_id: studioId || null, medico_id: medicoId || null })
+    .select('id').single();
+  if(error){ console.error(error); return null; }
+  return nuovo.id;
+}
+
+async function renderChatThread(canaleId, mittenteRuolo, container){
+  if(!canaleId){ container.innerHTML = `<p class="empty">Impossibile aprire questo canale.</p>`; return; }
+  const { data: messaggi } = await sb.from('messaggi').select('*').eq('canale_id', canaleId).order('created_at');
+  container.innerHTML = `
+    <div style="max-height:400px;overflow-y:auto;border:1px solid var(--line);border-radius:8px;padding:14px;margin-bottom:12px;background:#fff;">
+      ${(messaggi && messaggi.length) ? messaggi.map(m => `<div style="margin-bottom:10px;text-align:${m.mittente_ruolo===mittenteRuolo?'right':'left'};">
+        <div style="display:inline-block;background:${m.mittente_ruolo===mittenteRuolo?'var(--accent)':'#eef0f0'};padding:8px 12px;border-radius:10px;font-size:13px;max-width:70%;text-align:left;">${m.testo}</div>
+        <div style="font-size:10px;color:var(--muted);margin-top:2px;">${new Date(m.created_at).toLocaleString('it-IT')}</div>
+      </div>`).join('') : '<p class="empty">Nessun messaggio in questo canale.</p>'}
+    </div>
+    <div style="display:flex;gap:8px;">
+      <input type="text" id="chat-input" placeholder="Scrivi un messaggio…" style="flex:1;border:1px solid var(--line);border-radius:6px;padding:9px 12px;font-family:inherit;">
+      <button class="btn" id="chat-invia">Invia</button>
+    </div>
+  `;
+  const invia = async () => {
+    const input = document.getElementById('chat-input');
+    const testo = input.value.trim();
+    if(!testo) return;
+    const { data: { session } } = await sb.auth.getSession();
+    const { error } = await sb.from('messaggi').insert({ canale_id: canaleId, mittente_id: session.user.id, mittente_ruolo: mittenteRuolo, testo });
+    if(error){ alert('Errore: ' + error.message); return; }
+    input.value = '';
+    renderChatThread(canaleId, mittenteRuolo, container);
+  };
+  document.getElementById('chat-invia').onclick = invia;
+  document.getElementById('chat-input').addEventListener('keydown', e => { if(e.key === 'Enter') invia(); });
+}
+
+async function renderMessaggiLab(profilo){
+  const content = document.getElementById('content');
+  const { data: collegamenti } = await sb.from('collegamenti').select('studio_id, studi(nome)').eq('laboratorio_id', profilo.laboratorio_id).eq('stato','attivo');
+  content.innerHTML = `
+    <h1>Messaggi</h1>
+    <div style="display:flex;gap:20px;">
+      <div style="width:220px;flex-shrink:0;" id="elenco-canali-lab"></div>
+      <div style="flex:1;" id="chat-container"><p class="empty">Seleziona una conversazione.</p></div>
+    </div>
+  `;
+  const elencoEl = document.getElementById('elenco-canali-lab');
+  if(!collegamenti || collegamenti.length === 0){ elencoEl.innerHTML = `<p class="empty">Nessuno studio collegato.</p>`; return; }
+  let righe = [];
+  for(const c of collegamenti){
+    righe.push({ tipo:'studio', label: c.studi.nome, studio_id: c.studio_id, medico_id: null });
+    const { data: mediciDelloStudio } = await sb.from('medici').select('id, nome').eq('studio_id', c.studio_id).eq('attivo', true);
+    (mediciDelloStudio||[]).forEach(m => righe.push({ tipo:'medico', label: `↳ ${m.nome}`, studio_id: null, medico_id: m.id }));
+  }
+  elencoEl.innerHTML = righe.map((r,i) => `<button class="nav-btn" data-canale-idx="${i}" style="text-align:left;">${r.label}</button>`).join('');
+  elencoEl.querySelectorAll('[data-canale-idx]').forEach(btn => {
+    btn.onclick = async () => {
+      elencoEl.querySelectorAll('[data-canale-idx]').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      const r = righe[btn.dataset.canaleIdx];
+      const canaleId = await ottieniCanale(r.tipo, profilo.laboratorio_id, r.studio_id, r.medico_id);
+      renderChatThread(canaleId, 'LABORATORIO', document.getElementById('chat-container'));
+    };
+  });
+}
+
+async function renderMessaggiStudio(profilo){
+  const content = document.getElementById('content');
+  const { data: collegamenti } = await sb.from('collegamenti').select('laboratorio_id, laboratori(nome)').eq('studio_id', profilo.studio_id).eq('stato','attivo');
+  if(!collegamenti || collegamenti.length === 0){ content.innerHTML = `<h1>Messaggi</h1><p class="lead">Nessun laboratorio collegato.</p>`; return; }
+  content.innerHTML = `
+    <h1>Messaggi</h1>
+    ${collegamenti.length>1 ? `<div class="field" style="max-width:280px;"><label>Laboratorio</label><select id="chat-lab-studio">${collegamenti.map(c=>`<option value="${c.laboratorio_id}">${c.laboratori.nome}</option>`).join('')}</select></div>` : ''}
+    <div id="chat-container" style="margin-top:14px;"></div>
+  `;
+  async function apri(labId){
+    const canaleId = await ottieniCanale('studio', labId, profilo.studio_id, null);
+    renderChatThread(canaleId, 'STUDIO', document.getElementById('chat-container'));
+  }
+  const sel = document.getElementById('chat-lab-studio');
+  if(sel) sel.onchange = () => apri(sel.value);
+  apri(collegamenti[0].laboratorio_id);
+}
+
+async function renderMessaggiMedico(profilo){
+  const content = document.getElementById('content');
+  const { data: medico } = await sb.from('medici').select('studio_id').eq('id', profilo.medico_id).single();
+  const { data: collegamenti } = await sb.from('collegamenti').select('laboratorio_id, laboratori(nome)').eq('studio_id', medico.studio_id).eq('stato','attivo');
+  if(!collegamenti || collegamenti.length === 0){ content.innerHTML = `<h1>Messaggi</h1><p class="lead">Il tuo studio non ha ancora laboratori collegati.</p>`; return; }
+  content.innerHTML = `
+    <h1>Messaggi</h1>
+    ${collegamenti.length>1 ? `<div class="field" style="max-width:280px;"><label>Laboratorio</label><select id="chat-lab-medico">${collegamenti.map(c=>`<option value="${c.laboratorio_id}">${c.laboratori.nome}</option>`).join('')}</select></div>` : ''}
+    <div id="chat-container" style="margin-top:14px;"></div>
+  `;
+  async function apri(labId){
+    const canaleId = await ottieniCanale('medico', labId, null, profilo.medico_id);
+    renderChatThread(canaleId, 'MEDICO', document.getElementById('chat-container'));
+  }
+  const sel = document.getElementById('chat-lab-medico');
+  if(sel) sel.onchange = () => apri(sel.value);
+  apri(collegamenti[0].laboratorio_id);
+}
+
+/* ---------- SE GIÀ LOGGATO, RIPRENDI LA SESSIONE ---------- */
+avviaApp();
+</script>
+<div id="print-area"></div>
+</body>
+</html>
