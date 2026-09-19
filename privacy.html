@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Informativa Privacy — Nuovalab</title>
+<style>
+  :root{
+    --ink:#3d3d42; --bg:#f7f6f2; --card:#ffffff; --line:#e2e0da; --muted:#7c7a80;
+    --accent:#f6c647; --accent-dark:#c99a1f; --block:#b23a2e; --block-soft:#f8e6e3;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);font-family:-apple-system,'Segoe UI',Arial,sans-serif;color:var(--ink);}
+  .wrap{max-width:760px;margin:0 auto;padding:40px 24px 80px;}
+  h1{font-size:24px;margin-bottom:4px;}
+  p.sub{color:var(--muted);font-size:13.5px;margin-top:0;}
+  h2{font-size:16px;margin-top:34px;border-top:1px solid var(--line);padding-top:24px;}
+  p, li{font-size:14px;line-height:1.6;}
+  .avviso{background:var(--block-soft);color:var(--block);border-radius:8px;padding:14px 18px;font-size:13px;margin:20px 0;}
+  .placeholder{background:#fff7e0;border:1px dashed var(--accent-dark);border-radius:4px;padding:1px 6px;font-family:monospace;font-size:13px;}
+  table{width:100%;border-collapse:collapse;margin:14px 0;font-size:13.5px;}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);}
+  th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;}
+  a{color:var(--accent-dark);}
+  .back{display:inline-block;margin-top:30px;font-size:13px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Informativa sul trattamento dei dati personali</h1>
+  <p class="sub">Ai sensi degli articoli 13 e 14 del Regolamento (UE) 2016/679 (GDPR)</p>
+
+  <div class="avviso">
+    <strong>Nota per chi gestisce questo laboratorio/studio:</strong> questo è un modello di partenza, non un documento pronto per l'uso. Ogni campo evidenziato con sfondo giallo va compilato con i dati reali. Si consiglia di far verificare il testo finale da un consulente privacy prima di renderlo effettivo, soprattutto per la parte relativa ai dati sanitari.
+  </div>
+
+  <h2>1. Titolare del trattamento</h2>
+  <p>
+    Titolare del trattamento è <span class="placeholder">[ragione sociale del laboratorio/studio]</span>,
+    con sede in <span class="placeholder">[indirizzo]</span>,
+    P.IVA <span class="placeholder">[partita IVA]</span>,
+    contattabile all'indirizzo <span class="placeholder">[email]</span>.
+  </p>
+  <p>
+    Ogni laboratorio odontotecnico e ogni studio dentistico che utilizza Nuovalab è titolare autonomo dei dati dei propri pazienti/clienti: i diversi laboratori e studi non hanno accesso ai dati reciproci al di fuori delle lavorazioni concordate tra loro.
+  </p>
+
+  <h2>2. Dati trattati</h2>
+  <table>
+    <tr><th>Categoria</th><th>Esempi</th></tr>
+    <tr><td>Dati identificativi del paziente</td><td>Nome, cognome, data di nascita</td></tr>
+    <tr><td>Dati relativi al trattamento odontoiatrico</td><td>Tipo di dispositivo, colore, materiali, note cliniche</td></tr>
+    <tr><td>Allegati clinici</td><td>Fotografie, scansioni, file STL</td></tr>
+    <tr><td>Dati identificativi di medici e operatori</td><td>Nome, numero di iscrizione all'Albo</td></tr>
+    <tr><td>Dati di accesso</td><td>Email, log di accesso al sistema</td></tr>
+  </table>
+  <p>Le note cliniche e gli allegati (foto, scansioni) possono contenere dati che rientrano nella categoria di dati relativi alla salute (art. 9 GDPR), che richiedono garanzie rafforzate.</p>
+
+  <h2>3. Finalità e base giuridica</h2>
+  <p>I dati sono trattati per le seguenti finalità:</p>
+  <ul>
+    <li>Gestione dell'ordine di lavorazione odontotecnica tra studio e laboratorio — base giuridica: esecuzione di un contratto (art. 6.1.b GDPR) e, per i dati sulla salute, prestazione di cure (art. 9.2.h GDPR);</li>
+    <li>Adempimento degli obblighi di tracciabilità e conservazione documentale previsti dal Regolamento (UE) 2017/745 (MDR) per i dispositivi medici su misura — base giuridica: obbligo legale (art. 6.1.c GDPR);</li>
+    <li>Comunicazione tra studio, laboratorio e medico prescrittore relativa alla lavorazione — base giuridica: esecuzione di un contratto.</li>
+  </ul>
+
+  <h2>4. Conservazione dei dati</h2>
+  <p>
+    I dati relativi a ciascuna lavorazione, inclusa la documentazione tecnica (dichiarazione di conformità, tracciabilità dei materiali), sono conservati per un periodo minimo di
+    <strong>10 anni</strong> dalla fabbricazione del dispositivo, o <strong>15 anni</strong> per i dispositivi impiantabili, ai sensi dell'Allegato XIII, punto 4, del Regolamento (UE) 2017/745.
+  </p>
+
+  <h2>5. Soggetti che trattano i dati</h2>
+  <p>I dati sono conservati su server situati nell'Unione Europea, tramite i seguenti fornitori, che agiscono come responsabili del trattamento ai sensi dell'art. 28 GDPR:</p>
+  <ul>
+    <li><strong>Supabase Inc.</strong> — database e autenticazione (infrastruttura ospitata in Europa, Frankfurt);</li>
+    <li><strong>Render Services, Inc.</strong> — hosting dell'applicazione web.</li>
+  </ul>
+  <p>Con entrambi i fornitori è in essere (o va sottoscritto da parte del titolare) un accordo sul trattamento dei dati conforme all'art. 28 GDPR (Data Processing Agreement), reso disponibile dai rispettivi fornitori.</p>
+
+  <h2>6. Comunicazione dei dati</h2>
+  <p>
+    I dati relativi a una lavorazione sono visibili esclusivamente allo studio ordinante, al laboratorio incaricato e al medico prescrittore indicato, per il tempo necessario alla lavorazione. Non sono comunicati a soggetti terzi non coinvolti nella lavorazione, né utilizzati per finalità di marketing.
+  </p>
+
+  <h2>7. Diritti dell'interessato</h2>
+  <p>In qualità di interessato, hai diritto di:</p>
+  <ul>
+    <li>Ottenere conferma dell'esistenza di dati che ti riguardano e accedervi (art. 15 GDPR);</li>
+    <li>Ottenere la rettifica dei dati inesatti (art. 16 GDPR);</li>
+    <li>Ottenere la cancellazione dei dati, salvo gli obblighi di conservazione documentale previsti dal Regolamento MDR (art. 17 GDPR);</li>
+    <li>Ottenere la limitazione del trattamento (art. 18 GDPR);</li>
+    <li>Ottenere la portabilità dei dati (art. 20 GDPR);</li>
+    <li>Opporti al trattamento (art. 21 GDPR);</li>
+    <li>Proporre reclamo al Garante per la protezione dei dati personali (<a href="https://www.gpdp.it" target="_blank">www.gpdp.it</a>).</li>
+  </ul>
+  <p>Per esercitare questi diritti, scrivi a <span class="placeholder">[email del titolare]</span>.</p>
+
+  <h2>8. Misure di sicurezza</h2>
+  <p>
+    L'accesso ai dati è protetto da autenticazione personale e da regole di accesso che garantiscono che ogni laboratorio, studio e medico veda esclusivamente i dati di propria competenza. Le comunicazioni con il sistema avvengono tramite connessione cifrata (HTTPS).
+  </p>
+
+  <p style="margin-top:40px;color:var(--muted);font-size:12px;">Ultimo aggiornamento: <span class="placeholder">[data]</span></p>
+
+  <a class="back" href="index.html">← Torna a Nuovalab</a>
+</div>
+</body>
+</html>
