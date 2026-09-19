@@ -79,6 +79,7 @@
     <div class="field"><label>Password</label><input type="password" id="password"></div>
     <button class="btn block" id="btn-login">Accedi</button>
     <div class="msg" id="login-msg"></div>
+    <div style="text-align:center;margin-top:16px;"><a href="privacy.html" style="font-size:12px;color:var(--muted);" target="_blank">Informativa Privacy</a></div>
   </div>
 </div>
 
@@ -87,6 +88,7 @@
     <div class="brand">Nuovalab</div>
     <div class="sub" style="font-size:11.5px;color:var(--muted);margin-bottom:16px;" id="ruolo-corrente">Admin</div>
     <div id="sidebar-nav"></div>
+    <div id="notifiche-box" style="margin-top:20px;"></div>
   </div>
   <div class="main" style="flex:1;">
     <div class="topbar">
@@ -183,6 +185,7 @@ async function avviaApp(){
   }
 
   window.PROFILO_CORRENTE = profilo;
+  renderNotificheBox(profilo);
 
   const navEl = document.getElementById('sidebar-nav');
   navEl.innerHTML = items.map((it,i) => `<button class="nav-btn ${i===0?'active':''}" data-nav-key="${it.key}">${it.label}</button>`).join('');
@@ -1860,6 +1863,10 @@ async function renderPazienti(profilo){
         <div class="field"><label>Data di nascita</label><input id="pz-nascita" type="date"></div>
       </div>
       <div class="field" style="max-width:280px;margin-top:10px;"><label>Riferimento cartella (facoltativo)</label><input id="pz-cartella"></div>
+      <label style="display:flex;align-items:flex-start;gap:8px;margin-top:14px;font-size:13px;cursor:pointer;">
+        <input type="checkbox" id="pz-consenso" style="margin-top:2px;">
+        <span>Il paziente ha fornito il consenso al trattamento dei propri dati personali, inclusi eventuali dati relativi alla salute, secondo quanto indicato nell'<a href="privacy.html" target="_blank">informativa privacy</a>.</span>
+      </label>
       <button class="btn" id="btn-crea-paziente" style="margin-top:12px;">Crea paziente</button>
       <div class="msg" id="paziente-msg"></div>
     </div>
@@ -1870,13 +1877,19 @@ async function renderPazienti(profilo){
     const nome = document.getElementById('pz-nome').value.trim();
     const data_nascita = document.getElementById('pz-nascita').value || null;
     const riferimento_cartella = document.getElementById('pz-cartella').value.trim() || null;
+    const consenso_privacy = document.getElementById('pz-consenso').checked;
     if(!cognome || !nome){ mostraMsg('paziente-msg', 'Cognome e nome sono obbligatori.', 'error'); return; }
-    const { error } = await sb.from('pazienti').insert({ studio_id: profilo.studio_id, cognome, nome, data_nascita, riferimento_cartella });
+    if(!consenso_privacy){ mostraMsg('paziente-msg', 'Il consenso al trattamento dei dati è obbligatorio per registrare il paziente.', 'error'); return; }
+    const { error } = await sb.from('pazienti').insert({
+      studio_id: profilo.studio_id, cognome, nome, data_nascita, riferimento_cartella,
+      consenso_privacy, data_consenso: new Date().toISOString().slice(0,10)
+    });
     if(error){ mostraMsg('paziente-msg', 'Errore: ' + error.message, 'error'); return; }
     document.getElementById('pz-cognome').value = '';
     document.getElementById('pz-nome').value = '';
     document.getElementById('pz-nascita').value = '';
     document.getElementById('pz-cartella').value = '';
+    document.getElementById('pz-consenso').checked = false;
     mostraMsg('paziente-msg', 'Paziente creato.', 'ok');
     caricaPazienti(profilo);
   };
@@ -1889,8 +1902,9 @@ async function caricaPazienti(profilo){
   if(error){ el.innerHTML = `<p class="empty">Errore: ${error.message}</p>`; return; }
   if(!data || data.length === 0){ el.innerHTML = `<p class="empty">Nessun paziente ancora registrato.</p>`; return; }
   el.innerHTML = `
-    <table><thead><tr><th>Cognome</th><th>Nome</th><th>Data nascita</th><th>Cartella</th></tr></thead><tbody>
-      ${data.map(p => `<tr><td>${p.cognome}</td><td>${p.nome}</td><td>${p.data_nascita || '—'}</td><td>${p.riferimento_cartella || '—'}</td></tr>`).join('')}
+    <table><thead><tr><th>Cognome</th><th>Nome</th><th>Data nascita</th><th>Cartella</th><th>Consenso privacy</th></tr></thead><tbody>
+      ${data.map(p => `<tr><td>${p.cognome}</td><td>${p.nome}</td><td>${p.data_nascita || '—'}</td><td>${p.riferimento_cartella || '—'}</td>
+        <td>${p.consenso_privacy ? `<span class="badge ok"><span class="dot"></span>${p.data_consenso||''}</span>` : `<span class="badge off"><span class="dot"></span>Mancante</span>`}</td></tr>`).join('')}
     </tbody></table>
   `;
 }
@@ -2091,6 +2105,7 @@ async function renderChatThread(canaleId, mittenteRuolo, container){
       letto_da_lab: isLab, letto_da_controparte: !isLab
     });
     if(error){ alert('Errore: ' + error.message); return; }
+    inviaNotificaPush(canaleId, mittenteRuolo, testo);
     input.value = '';
     renderChatThread(canaleId, mittenteRuolo, container);
   };
@@ -2194,6 +2209,78 @@ async function renderMessaggiMedico(profilo){
   const sel = document.getElementById('chat-lab-medico');
   if(sel) sel.onchange = () => apri(sel.value);
   apri(collegamenti[0].laboratorio_id);
+}
+
+/* ---------- NOTIFICHE PUSH ---------- */
+function base64urlToUint8Array(base64url){
+  const padding = '='.repeat((4 - base64url.length % 4) % 4);
+  const base64 = (base64url + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = atob(base64);
+  const arr = new Uint8Array(rawData.length);
+  for(let i = 0; i < rawData.length; i++) arr[i] = rawData.charCodeAt(i);
+  return arr;
+}
+
+async function renderNotificheBox(profilo){
+  const box = document.getElementById('notifiche-box');
+  if(!('serviceWorker' in navigator) || !('PushManager' in window)){
+    box.innerHTML = '';
+    return;
+  }
+  if(Notification.permission === 'granted'){
+    box.innerHTML = `<div style="font-size:11.5px;color:var(--ok);">🔔 Notifiche attive</div>`;
+    return;
+  }
+  if(Notification.permission === 'denied'){
+    box.innerHTML = `<div style="font-size:11.5px;color:var(--muted);">🔕 Notifiche bloccate dal browser</div>`;
+    return;
+  }
+  box.innerHTML = `<button class="nav-btn" id="btn-attiva-notifiche" style="border:1px solid var(--line);">🔔 Attiva notifiche</button>`;
+  document.getElementById('btn-attiva-notifiche').onclick = () => attivaNotifiche(profilo);
+}
+
+async function attivaNotifiche(profilo){
+  try{
+    const permesso = await Notification.requestPermission();
+    if(permesso !== 'granted'){ renderNotificheBox(profilo); return; }
+
+    const registration = await navigator.serviceWorker.register('/sw.js');
+    await navigator.serviceWorker.ready;
+
+    const subscription = await registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: base64urlToUint8Array(window.NUOVALAB_CONFIG.VAPID_PUBLIC_KEY)
+    });
+
+    const json = subscription.toJSON();
+    const { data: { session } } = await sb.auth.getSession();
+    const { error } = await sb.from('push_subscriptions').upsert({
+      profilo_id: session.user.id,
+      endpoint: json.endpoint,
+      p256dh: json.keys.p256dh,
+      auth_key: json.keys.auth
+    }, { onConflict: 'endpoint' });
+    if(error){ alert('Errore salvataggio: ' + error.message); return; }
+
+    renderNotificheBox(profilo);
+  } catch(e){
+    alert('Non è stato possibile attivare le notifiche: ' + e.message);
+  }
+}
+
+async function inviaNotificaPush(canaleId, mittenteRuolo, testo){
+  try{
+    const { data: { session } } = await sb.auth.getSession();
+    await fetch(`${window.NUOVALAB_CONFIG.SUPABASE_URL}/functions/v1/send-push`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session.access_token}`,
+        'apikey': window.NUOVALAB_CONFIG.SUPABASE_ANON_KEY
+      },
+      body: JSON.stringify({ canale_id: canaleId, mittente_ruolo: mittenteRuolo, testo })
+    });
+  } catch(e){ console.error('Notifica push non inviata:', e); }
 }
 
 /* ---------- SE GIÀ LOGGATO, RIPRENDI LA SESSIONE ---------- */
