@@ -79,7 +79,25 @@
     <div class="field"><label>Password</label><input type="password" id="password"></div>
     <button class="btn block" id="btn-login">Accedi</button>
     <div class="msg" id="login-msg"></div>
+    <div style="text-align:center;margin-top:12px;"><a href="#" id="link-password-dimenticata" style="font-size:12.5px;color:var(--muted);">Password dimenticata?</a></div>
+
+    <div id="recupero-box" style="display:none;margin-top:16px;padding-top:16px;border-top:1px solid var(--line);">
+      <div class="field"><label>Email</label><input type="email" id="recupero-email"></div>
+      <button class="btn secondary block" id="btn-invia-recupero">Invia link di recupero</button>
+      <div class="msg" id="recupero-msg"></div>
+    </div>
+
     <div style="text-align:center;margin-top:16px;"><a href="privacy.html" style="font-size:12px;color:var(--muted);" target="_blank">Informativa Privacy</a></div>
+  </div>
+</div>
+
+<div id="nuova-password-screen" style="display:none;min-height:100vh;align-items:center;justify-content:center;padding:20px;">
+  <div class="box">
+    <h1>Imposta una nuova password</h1>
+    <p class="sub">Hai richiesto il recupero dell'accesso. Scegli una nuova password.</p>
+    <div class="field"><label>Nuova password</label><input type="password" id="nuova-password-input"></div>
+    <button class="btn block" id="btn-salva-nuova-password">Salva nuova password</button>
+    <div class="msg" id="nuova-password-msg"></div>
   </div>
 </div>
 
@@ -129,6 +147,42 @@ document.getElementById('btn-logout').addEventListener('click', async ()=>{
   document.getElementById('login-screen').style.display = 'flex';
 });
 
+document.getElementById('link-password-dimenticata').addEventListener('click', (e) => {
+  e.preventDefault();
+  const box = document.getElementById('recupero-box');
+  box.style.display = box.style.display === 'none' ? 'block' : 'none';
+});
+
+document.getElementById('btn-invia-recupero').addEventListener('click', async () => {
+  const email = document.getElementById('recupero-email').value.trim();
+  if(!email){ mostraMsg('recupero-msg', 'Inserisci la tua email.', 'error'); return; }
+  const { error } = await sb.auth.resetPasswordForEmail(email, {
+    redirectTo: window.location.origin + window.location.pathname
+  });
+  if(error){ mostraMsg('recupero-msg', 'Errore: ' + error.message, 'error'); return; }
+  mostraMsg('recupero-msg', 'Se l\'indirizzo è registrato, riceverai a breve un\'email con il link per reimpostare la password.', 'ok');
+});
+
+document.getElementById('btn-salva-nuova-password').addEventListener('click', async () => {
+  const nuovaPassword = document.getElementById('nuova-password-input').value;
+  if(!nuovaPassword || nuovaPassword.length < 6){ mostraMsg('nuova-password-msg', 'Almeno 6 caratteri.', 'error'); return; }
+  const { error } = await sb.auth.updateUser({ password: nuovaPassword });
+  if(error){ mostraMsg('nuova-password-msg', 'Errore: ' + error.message, 'error'); return; }
+  mostraMsg('nuova-password-msg', 'Password aggiornata! Accesso in corso…', 'ok');
+  setTimeout(async () => {
+    document.getElementById('nuova-password-screen').style.display = 'none';
+    await avviaApp();
+  }, 1200);
+});
+
+sb.auth.onAuthStateChange((event) => {
+  if(event === 'PASSWORD_RECOVERY'){
+    document.getElementById('login-screen').style.display = 'none';
+    document.getElementById('app-screen').style.display = 'none';
+    document.getElementById('nuova-password-screen').style.display = 'flex';
+  }
+});
+
 /* ---------- AVVIO APP DOPO LOGIN ---------- */
 async function avviaApp(){
   const { data: { session } } = await sb.auth.getSession();
@@ -149,7 +203,8 @@ async function avviaApp(){
     ADMIN: [
       { key:'laboratori', label:'Laboratori', fn: () => renderGestioneLaboratori() },
       { key:'studi', label:'Studi', fn: () => renderGestioneStudi() },
-      { key:'accessi', label:'Crea accesso', fn: () => renderCreaAccesso() }
+      { key:'accessi', label:'Crea accesso', fn: () => renderCreaAccesso() },
+      { key:'utenti', label:'Utenti', fn: () => renderUtenti() }
     ],
     LABORATORIO: [
       { key:'dashboard', label:'Dashboard lavorazioni', fn: () => renderDashboardLavorazioni(profilo) },
@@ -2282,6 +2337,87 @@ async function inviaNotificaPush(canaleId, mittenteRuolo, testo){
       body: JSON.stringify({ canale_id: canaleId, mittente_ruolo: mittenteRuolo, testo })
     });
   } catch(e){ console.error('Notifica push non inviata:', e); }
+}
+
+/* ---------- ADMIN: ELENCO UTENTI + RESET RAPIDO ---------- */
+async function renderUtenti(){
+  const content = document.getElementById('content');
+  content.innerHTML = `
+    <h1>Utenti</h1>
+    <p class="lead">Tutti gli accessi creati sulla piattaforma.</p>
+    <div id="lista-utenti"><p class="empty">Caricamento…</p></div>
+  `;
+  const el = document.getElementById('lista-utenti');
+  const { data: { session } } = await sb.auth.getSession();
+  try{
+    const resp = await fetch(`${window.NUOVALAB_CONFIG.SUPABASE_URL}/functions/v1/hyper-worker`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session.access_token}`,
+        'apikey': window.NUOVALAB_CONFIG.SUPABASE_ANON_KEY
+      },
+      body: JSON.stringify({ action: 'list_users' })
+    });
+    const risultato = await resp.json();
+    if(!resp.ok){ el.innerHTML = `<p class="empty">Errore: ${risultato.error || 'sconosciuto'}</p>`; return; }
+    if(!risultato.utenti || risultato.utenti.length === 0){ el.innerHTML = `<p class="empty">Nessun utente creato.</p>`; return; }
+
+    el.innerHTML = `
+      <table><thead><tr><th>Email</th><th>Ruolo</th><th>Entità collegata</th><th>Stato</th><th>Azioni</th></tr></thead><tbody>
+        ${risultato.utenti.map(u => `<tr>
+          <td>${u.email}</td>
+          <td>${u.ruolo}</td>
+          <td>${u.entita}</td>
+          <td>${u.attivo ? `<span class="badge ok"><span class="dot"></span>Attivo</span>` : `<span class="badge off"><span class="dot"></span>Disattivato</span>`}</td>
+          <td><button class="btn secondary" data-reset-utente="${u.email}">Reimposta password</button></td>
+        </tr>`).join('')}
+      </tbody></table>
+    `;
+    el.querySelectorAll('[data-reset-utente]').forEach(btn => {
+      btn.onclick = () => apriModaleResetRapido(btn.dataset.resetUtente);
+    });
+  } catch(e){
+    el.innerHTML = `<p class="empty">Errore di rete: ${e.message}</p>`;
+  }
+}
+
+function apriModaleResetRapido(email){
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;z-index:999;';
+  wrap.innerHTML = `
+    <div class="box" style="width:380px;">
+      <h1 style="font-size:16px;">Reimposta password</h1>
+      <p style="font-size:13px;color:var(--muted);">${email}</p>
+      <div class="field"><label>Nuova password</label><input id="rr-password" type="text"></div>
+      <button class="btn block" id="rr-salva">Reimposta</button>
+      <button class="btn secondary block" id="rr-annulla" style="margin-top:6px;">Annulla</button>
+      <div class="msg" id="rr-msg"></div>
+    </div>`;
+  document.body.appendChild(wrap);
+  document.getElementById('rr-annulla').onclick = () => wrap.remove();
+  document.getElementById('rr-salva').onclick = async () => {
+    const newPassword = document.getElementById('rr-password').value;
+    if(!newPassword || newPassword.length < 6){ mostraMsg('rr-msg', 'Almeno 6 caratteri.', 'error'); return; }
+    const { data: { session } } = await sb.auth.getSession();
+    try{
+      const resp = await fetch(`${window.NUOVALAB_CONFIG.SUPABASE_URL}/functions/v1/hyper-worker`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+          'apikey': window.NUOVALAB_CONFIG.SUPABASE_ANON_KEY
+        },
+        body: JSON.stringify({ action: 'reset_password', email, newPassword })
+      });
+      const risultato = await resp.json();
+      if(!resp.ok){ mostraMsg('rr-msg', 'Errore: ' + (risultato.error || 'sconosciuto'), 'error'); return; }
+      mostraMsg('rr-msg', 'Password reimpostata.', 'ok');
+      setTimeout(() => wrap.remove(), 1200);
+    } catch(e){
+      mostraMsg('rr-msg', 'Errore di rete: ' + e.message, 'error');
+    }
+  };
 }
 
 /* ---------- SE GIÀ LOGGATO, RIPRENDI LA SESSIONE ---------- */
