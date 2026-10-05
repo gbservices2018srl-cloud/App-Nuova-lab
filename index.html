@@ -62,6 +62,27 @@
   .nav-btn{all:unset;cursor:pointer;display:block;width:100%;box-sizing:border-box;padding:9px 12px;font-size:13.5px;color:var(--ink);border-radius:7px;margin-bottom:3px;}
   .nav-btn:hover{background:#f2f0ea;}
   .nav-btn.active{background:var(--accent);font-weight:700;}
+  .sidebar{transition:margin-left .2s ease,transform .2s ease;position:sticky;top:0;height:100vh;overflow-y:auto;box-sizing:border-box;z-index:50;}
+  body.sidebar-chiusa .sidebar{margin-left:-220px;}
+  .hamburger{all:unset;cursor:pointer;font-size:22px;line-height:1;padding:8px 12px;border-radius:7px;margin-right:10px;}
+  .hamburger:hover{background:#f2f0ea;}
+  .tbl-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;}
+  .main{min-width:0;}
+  #sidebar-backdrop{display:none;position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:40;}
+  @media (max-width:768px){
+    .sidebar{position:fixed;left:0;top:0;bottom:0;margin-left:0 !important;transform:translateX(-100%);box-shadow:2px 0 12px rgba(0,0,0,.15);}
+    body.sidebar-aperta .sidebar{transform:translateX(0);}
+    body.sidebar-aperta #sidebar-backdrop{display:block;}
+    .topbar{padding:0 12px;}
+    #chi-sono{display:none;}
+    .content{padding:16px 12px;}
+    .card{padding:14px;}
+    .form-grid{grid-template-columns:1fr;}
+    table{display:block;overflow-x:auto;white-space:nowrap;-webkit-overflow-scrolling:touch;}
+    h1{font-size:18px;}
+    .btn{padding:10px 14px;}
+    input,select,textarea{font-size:16px !important;}
+  }
   #print-area{display:none;}
   @media print{
     body > *:not(#print-area){display:none !important;}
@@ -83,7 +104,8 @@
 
     <div id="recupero-box" style="display:none;margin-top:16px;padding-top:16px;border-top:1px solid var(--line);">
       <div class="field"><label>Email</label><input type="email" id="recupero-email"></div>
-      <button class="btn secondary block" id="btn-invia-recupero">Invia link di recupero</button>
+      <p style="font-size:12.5px;color:var(--muted);margin:0 0 10px;">Inserisci la tua email: l'amministratore riceverà la richiesta e ti darà una password temporanea.</p>
+      <button class="btn secondary block" id="btn-invia-recupero">Richiedi nuova password</button>
       <div class="msg" id="recupero-msg"></div>
     </div>
 
@@ -102,6 +124,7 @@
 </div>
 
 <div id="app-screen" style="display:flex;min-height:100vh;">
+  <div id="sidebar-backdrop"></div>
   <div class="sidebar">
     <div class="brand">Nuovalab</div>
     <div class="sub" style="font-size:11.5px;color:var(--muted);margin-bottom:16px;" id="ruolo-corrente">Admin</div>
@@ -111,7 +134,7 @@
   </div>
   <div class="main" style="flex:1;">
     <div class="topbar">
-      <div></div>
+      <div><button class="hamburger" id="btn-menu" aria-label="Menu">☰</button><span class="brand">Nuovalab</span></div>
       <div><span id="chi-sono" style="font-size:13px;color:var(--muted);margin-right:14px;"></span><button class="btn secondary" id="btn-logout">Esci</button></div>
     </div>
     <div class="content" id="content"></div>
@@ -125,6 +148,7 @@ if(!window.NUOVALAB_CONFIG || window.NUOVALAB_CONFIG.SUPABASE_URL.includes('xxxx
 }
 const sb = supabase.createClient(window.NUOVALAB_CONFIG.SUPABASE_URL, window.NUOVALAB_CONFIG.SUPABASE_ANON_KEY);
 
+function escH(v){return String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 function mostraMsg(id, testo, tipo){
   const el = document.getElementById(id);
   el.textContent = testo;
@@ -156,11 +180,9 @@ document.getElementById('link-password-dimenticata').addEventListener('click', (
 document.getElementById('btn-invia-recupero').addEventListener('click', async () => {
   const email = document.getElementById('recupero-email').value.trim();
   if(!email){ mostraMsg('recupero-msg', 'Inserisci la tua email.', 'error'); return; }
-  const { error } = await sb.auth.resetPasswordForEmail(email, {
-    redirectTo: window.location.origin + window.location.pathname
-  });
+  const { error } = await sb.rpc('richiedi_reset_password', { p_email: email });
   if(error){ mostraMsg('recupero-msg', 'Errore: ' + error.message, 'error'); return; }
-  mostraMsg('recupero-msg', 'Se l\'indirizzo è registrato, riceverai a breve un\'email con il link per reimpostare la password.', 'ok');
+  mostraMsg('recupero-msg', 'Richiesta inviata. L\'amministratore Nuovalab ti comunicherà una password temporanea: al primo accesso dovrai sceglierne una nuova.', 'ok');
 });
 
 document.getElementById('btn-salva-nuova-password').addEventListener('click', async () => {
@@ -168,9 +190,11 @@ document.getElementById('btn-salva-nuova-password').addEventListener('click', as
   if(!nuovaPassword || nuovaPassword.length < 6){ mostraMsg('nuova-password-msg', 'Almeno 6 caratteri.', 'error'); return; }
   const { error } = await sb.auth.updateUser({ password: nuovaPassword });
   if(error){ mostraMsg('nuova-password-msg', 'Errore: ' + error.message, 'error'); return; }
+  await sb.rpc('password_cambiata');
   mostraMsg('nuova-password-msg', 'Password aggiornata! Accesso in corso…', 'ok');
   setTimeout(async () => {
     document.getElementById('nuova-password-screen').style.display = 'none';
+    window.__cambioForzatoFatto = true;
     await avviaApp();
   }, 1200);
 });
@@ -194,6 +218,13 @@ async function avviaApp(){
     return;
   }
 
+  if(profilo.deve_cambiare_password && !window.__cambioForzatoFatto){
+    document.getElementById('login-screen').style.display = 'none';
+    document.getElementById('app-screen').style.display = 'none';
+    document.querySelector('#nuova-password-screen .sub').textContent = 'Stai usando una password temporanea: scegline una nuova per continuare.';
+    document.getElementById('nuova-password-screen').style.display = 'flex';
+    return;
+  }
   document.getElementById('login-screen').style.display = 'none';
   document.getElementById('app-screen').style.display = 'flex';
   document.getElementById('chi-sono').textContent = session.user.email;
@@ -252,8 +283,21 @@ async function avviaApp(){
       items[i].fn();
     };
   });
+  // menu a scomparsa
+  const _mobile = () => window.matchMedia('(max-width:768px)').matches;
+  document.getElementById('btn-menu').onclick = () => {
+    if(_mobile()) document.body.classList.toggle('sidebar-aperta');
+    else document.body.classList.toggle('sidebar-chiusa');
+  };
+  document.getElementById('sidebar-backdrop').onclick = () => document.body.classList.remove('sidebar-aperta');
+  navEl.addEventListener('click', () => { if(_mobile()) document.body.classList.remove('sidebar-aperta'); });
   items[0].fn();
   aggiornaBadgeMessaggi(profilo);
+  if(profilo.ruolo === 'ADMIN'){
+    const { count } = await sb.from('richieste_reset').select('id', { count: 'exact', head: true }).eq('evasa', false);
+    const bu = navEl.querySelector('[data-nav-key="utenti"]');
+    if(bu && count) bu.innerHTML = `Utenti <span style="background:var(--block);color:#fff;border-radius:10px;padding:1px 7px;font-size:11px;margin-left:4px;">${count}</span>`;
+  }
 }
 
 /* ---------- ADMIN: SCHEDE LABORATORI / STUDI ---------- */
@@ -1352,7 +1396,7 @@ async function caricaLavorazioniLab(profilo){
   const el = document.getElementById('lista-lavorazioni-lab');
   const { data: odontotecniciDb } = await sb.from('odontotecnici').select('nome').eq('laboratorio_id', profilo.laboratorio_id).order('nome');
   const { data, error } = await sb.from('lavorazioni')
-    .select('id, tipo_macro, tipo_micro, colore, data_consegna_richiesta, data_consegna_confermata, consegna_stato, stato_lab, odontotecnico, studi(nome), materiali_lavorazione(materiale, lotto), segnalazioni(tipo, dettaglio, created_at), allegati(id, nome_file, storage_path, scaricato_il)')
+    .select('id, studio_id, medico_id, medici(nome), tipo_macro, tipo_micro, colore, data_consegna_richiesta, data_consegna_confermata, consegna_stato, stato_lab, odontotecnico, studi(nome), materiali_lavorazione(materiale, lotto), segnalazioni(tipo, dettaglio, created_at), allegati(id, nome_file, storage_path, scaricato_il)')
     .eq('laboratorio_id', profilo.laboratorio_id)
     .is('stato_studio', null)
     .order('data_consegna_richiesta', { ascending: true });
@@ -1372,7 +1416,10 @@ async function caricaLavorazioniLab(profilo){
         return `
         <tr${j.stato_lab==='da_rifare' ? ' style="background:#f8e6e3;"' : ''}>
           <td>${j.id}</td>
-          <td>${j.studi?.nome || '—'}</td>
+          <td>${j.studi?.nome || '—'}
+            <div style="margin-top:4px;white-space:nowrap;">
+              <button class="btn secondary" data-chat-medico="${j.id}" style="font-size:11px;padding:3px 7px;" title="Scrivi al medico prescrittore">💬 ${escH(j.medici?.nome || 'Medico')}</button>
+            </div></td>
           <td>${j.tipo_macro} › ${j.tipo_micro}</td>
           <td>${j.colore}</td>
           <td>${cellaConsegna}</td>
@@ -1412,6 +1459,14 @@ async function caricaLavorazioniLab(profilo){
         await sb.from('allegati').update({ storage_path: null, scaricato_il: new Date().toISOString().slice(0,10) }).eq('id', allegatoId);
         caricaLavorazioniLab(profilo);
       }, 500);
+    };
+  });
+  el.querySelectorAll('[data-chat-medico]').forEach(btn => {
+    btn.onclick = () => {
+      const j = data.find(x => x.id === btn.dataset.chatMedico);
+      if(!j || !j.medico_id){ alert('Medico prescrittore non disponibile per questa pratica.'); return; }
+      document.querySelectorAll('#sidebar-nav .nav-btn').forEach(b => b.classList.toggle('active', /Messaggi/i.test(b.textContent)));
+      renderMessaggiLab(profilo, { medico_id: j.medico_id, studio_id: j.studio_id, prefill: `Riguardo alla pratica ${j.id}: ` });
     };
   });
   el.querySelectorAll('[data-set-odt]').forEach(sel => {
@@ -1487,25 +1542,46 @@ async function caricaListino(profilo, studioId){
   macros.forEach(m => (m.tipi_lavoro_micro || []).forEach(mi => righe.push({ macro: m.nome, micro: mi.nome })));
 
   el.innerHTML = `
-    <table><thead><tr><th>Categoria</th><th>Tipo di lavoro</th><th>Prezzo (€)</th></tr></thead><tbody>
-      ${righe.map(r => {
+    <div class="tbl-wrap"><table><thead><tr><th>Categoria</th><th>Tipo di lavoro</th><th>Prezzo (€)</th><th></th></tr></thead><tbody>
+      ${righe.map((r,i) => {
         const p = mappaPrezzi[`${r.macro}||${r.micro}`];
-        return `<tr><td>${r.macro}</td><td>${r.micro}</td>
-          <td><input type="number" min="0" step="1" class="inline-num" value="${p!=null?p:''}" placeholder="—" data-macro="${r.macro}" data-micro="${r.micro}"></td></tr>`;
+        return `<tr><td>${escH(r.macro)}</td><td>${escH(r.micro)}</td>
+          <td><input type="number" min="0" step="0.01" inputmode="decimal" class="inline-num" style="width:100px" value="${p!=null?p:''}" placeholder="—" data-idx="${i}"></td>
+          <td class="stato-salvataggio" data-stato="${i}" style="font-size:12px;color:var(--muted);width:90px;"></td></tr>`;
       }).join('')}
-      ${righe.length===0 ? `<tr><td colspan="3" class="empty">Nessun tipo di lavoro impostato.</td></tr>` : ''}
-    </tbody></table>
+      ${righe.length===0 ? `<tr><td colspan="4" class="empty">Nessun tipo di lavoro impostato: aggiungi le sotto-voci in Impostazioni.</td></tr>` : ''}
+    </tbody></table></div>
+    <p style="font-size:12px;color:var(--muted);">I prezzi si salvano automaticamente quando esci dal campo. Per cambiare i nomi delle voci vai in Impostazioni → Categorie e tipi di lavoro.</p>
   `;
 
-  el.querySelectorAll('input[data-macro]').forEach(input => {
-    input.onchange = async () => {
-      const prezzo = input.value === '' ? null : parseFloat(input.value);
-      const riga = { laboratorio_id: profilo.laboratorio_id, tipo_macro: input.dataset.macro, tipo_micro: input.dataset.micro, prezzo };
-      if(tabella === 'listino_prezzi') riga.studio_id = studioId;
-      const conflictCols = tabella === 'listino_prezzi' ? 'laboratorio_id,studio_id,tipo_macro,tipo_micro' : 'laboratorio_id,tipo_macro,tipo_micro';
-      const { error } = await sb.from(tabella).upsert(riga, { onConflict: conflictCols });
-      if(error) alert('Errore salvataggio: ' + error.message);
+  el.querySelectorAll('input[data-idx]').forEach(input => {
+    const r = righe[parseInt(input.dataset.idx)];
+    const stato = el.querySelector(`[data-stato="${input.dataset.idx}"]`);
+    let ultimo = input.value;
+    const salva = async () => {
+      if(input.value === ultimo) return;
+      const raw = input.value.trim().replace(',', '.');
+      const prezzo = raw === '' ? null : parseFloat(raw);
+      if(raw !== '' && (isNaN(prezzo) || prezzo < 0)){ stato.textContent = '⚠ valore non valido'; stato.style.color = 'var(--block)'; return; }
+      stato.textContent = 'Salvataggio…'; stato.style.color = 'var(--muted)';
+      let error;
+      if(prezzo === null){
+        let q = sb.from(tabella).delete().eq('laboratorio_id', profilo.laboratorio_id).eq('tipo_macro', r.macro).eq('tipo_micro', r.micro);
+        if(tabella === 'listino_prezzi') q = q.eq('studio_id', studioId);
+        ({ error } = await q);
+      } else {
+        const riga = { laboratorio_id: profilo.laboratorio_id, tipo_macro: r.macro, tipo_micro: r.micro, prezzo };
+        if(tabella === 'listino_prezzi') riga.studio_id = studioId;
+        const conflictCols = tabella === 'listino_prezzi' ? 'laboratorio_id,studio_id,tipo_macro,tipo_micro' : 'laboratorio_id,tipo_macro,tipo_micro';
+        ({ error } = await sb.from(tabella).upsert(riga, { onConflict: conflictCols }));
+      }
+      if(error){ stato.textContent = '✗ ' + error.message; stato.style.color = 'var(--block)'; return; }
+      ultimo = input.value;
+      stato.textContent = '✓ salvato'; stato.style.color = 'var(--ok)';
     };
+    input.addEventListener('change', salva);
+    input.addEventListener('blur', salva);
+    input.addEventListener('keydown', e => { if(e.key === 'Enter') input.blur(); });
   });
 }
 
@@ -1574,6 +1650,23 @@ async function renderImpostazioni(profilo){
   renderListaSemplice(profilo, 'tipi_problema', 'Tipi di problema (segnalazioni)', listeEl);
 }
 
+/* Dopo una rinomina, aggiorna listini (e lavorazioni esistenti) che usano il nome come chiave */
+async function migraNomeListino(profilo, o){
+  const tabelle = ['listino_base', 'listino_prezzi', 'lavorazioni'];
+  for(const t of tabelle){
+    let q = sb.from(t);
+    if(o.macroNuovo){
+      q = q.update({ tipo_macro: o.macroNuovo }).eq('tipo_macro', o.macroVecchio);
+    } else {
+      q = q.update({ tipo_micro: o.microNuovo }).eq('tipo_macro', o.macro).eq('tipo_micro', o.microVecchio);
+    }
+    if(t === 'lavorazioni') q = q.eq('laboratorio_id', profilo.laboratorio_id);
+    else q = q.eq('laboratorio_id', profilo.laboratorio_id);
+    const { error } = await q;
+    if(error) console.warn('Migrazione nome su ' + t + ':', error.message);
+  }
+}
+
 async function caricaTipiLavoro(profilo){
   const el = document.getElementById('lista-tipi-lavoro');
   const { data: macros } = await sb.from('tipi_lavoro_macro').select('id, nome, tipi_lavoro_micro(id, nome)').eq('laboratorio_id', profilo.laboratorio_id).order('nome');
@@ -1582,11 +1675,12 @@ async function caricaTipiLavoro(profilo){
   el.innerHTML = macros.map(m => `
     <div style="border:1px solid var(--line);border-radius:8px;padding:12px;margin-bottom:10px;">
       <div style="display:flex;justify-content:space-between;align-items:center;">
-        <strong>${m.nome}</strong>
-        <button class="btn danger" data-rm-macro="${m.id}">Elimina categoria</button>
+        <strong>${escH(m.nome)}</strong>
+        <span style="display:flex;gap:6px;"><button class="btn secondary" data-ren-macro="${m.id}" data-nome="${escH(m.nome)}">✎ Rinomina</button>
+        <button class="btn danger" data-rm-macro="${m.id}">Elimina categoria</button></span>
       </div>
       <div style="margin-top:8px;">
-        ${(m.tipi_lavoro_micro || []).map(mi => `<span class="badge off" style="margin:2px 4px 2px 0;">${mi.nome} <button data-rm-micro="${mi.id}" style="all:unset;cursor:pointer;margin-left:6px;color:var(--block);font-weight:700;">×</button></span>`).join('') || '<span style="font-size:12px;color:var(--muted);">Nessuna sotto-voce.</span>'}
+        ${(m.tipi_lavoro_micro || []).map(mi => `<span class="badge off" style="margin:2px 4px 2px 0;">${escH(mi.nome)} <button data-ren-micro="${mi.id}" data-macro-nome="${escH(m.nome)}" data-nome="${escH(mi.nome)}" title="Rinomina" style="all:unset;cursor:pointer;margin-left:6px;">✎</button><button data-rm-micro="${mi.id}" style="all:unset;cursor:pointer;margin-left:6px;color:var(--block);font-weight:700;">×</button></span>`).join('') || '<span style="font-size:12px;color:var(--muted);">Nessuna sotto-voce.</span>'}
       </div>
       <div style="display:flex;gap:8px;margin-top:10px;">
         <input type="text" class="inline-text" placeholder="Nuova sotto-voce…" data-nuovo-micro="${m.id}">
@@ -1595,6 +1689,28 @@ async function caricaTipiLavoro(profilo){
     </div>
   `).join('');
 
+  el.querySelectorAll('[data-ren-macro]').forEach(btn => {
+    btn.onclick = async () => {
+      const vecchio = btn.dataset.nome;
+      const nuovo = (prompt('Nuovo nome della categoria:', vecchio) || '').trim();
+      if(!nuovo || nuovo === vecchio) return;
+      const { error } = await sb.from('tipi_lavoro_macro').update({ nome: nuovo }).eq('id', btn.dataset.renMacro);
+      if(error){ alert('Errore: ' + error.message); return; }
+      await migraNomeListino(profilo, { macroVecchio: vecchio, macroNuovo: nuovo });
+      caricaTipiLavoro(profilo);
+    };
+  });
+  el.querySelectorAll('[data-ren-micro]').forEach(btn => {
+    btn.onclick = async () => {
+      const vecchio = btn.dataset.nome, macro = btn.dataset.macroNome;
+      const nuovo = (prompt('Nuovo nome del tipo di lavoro:', vecchio) || '').trim();
+      if(!nuovo || nuovo === vecchio) return;
+      const { error } = await sb.from('tipi_lavoro_micro').update({ nome: nuovo }).eq('id', btn.dataset.renMicro);
+      if(error){ alert('Errore: ' + error.message); return; }
+      await migraNomeListino(profilo, { macro, microVecchio: vecchio, microNuovo: nuovo });
+      caricaTipiLavoro(profilo);
+    };
+  });
   el.querySelectorAll('[data-rm-macro]').forEach(btn => {
     btn.onclick = async () => { await sb.from('tipi_lavoro_macro').delete().eq('id', btn.dataset.rmMacro); caricaTipiLavoro(profilo); };
   });
@@ -2196,14 +2312,14 @@ async function aggiornaBadgeMessaggi(profilo){
     : `Messaggi`;
 }
 
-async function renderMessaggiLab(profilo){
+async function renderMessaggiLab(profilo, target){
   const content = document.getElementById('content');
   const { data: collegamenti } = await sb.from('collegamenti').select('studio_id, studi(nome)').eq('laboratorio_id', profilo.laboratorio_id).eq('stato','attivo');
   content.innerHTML = `
     <h1>Messaggi</h1>
-    <div style="display:flex;gap:20px;">
-      <div style="width:220px;flex-shrink:0;" id="elenco-canali-lab"></div>
-      <div style="flex:1;" id="chat-container"><p class="empty">Seleziona una conversazione.</p></div>
+    <div style="display:flex;gap:20px;flex-wrap:wrap;">
+      <div style="width:220px;max-width:100%;flex-shrink:0;" id="elenco-canali-lab"></div>
+      <div style="flex:1;min-width:260px;" id="chat-container"><p class="empty">Seleziona una conversazione.</p></div>
     </div>
   `;
   const elencoEl = document.getElementById('elenco-canali-lab');
@@ -2216,14 +2332,25 @@ async function renderMessaggiLab(profilo){
   }
   elencoEl.innerHTML = righe.map((r,i) => `<button class="nav-btn" data-canale-idx="${i}" style="text-align:left;">${r.label}</button>`).join('');
   elencoEl.querySelectorAll('[data-canale-idx]').forEach(btn => {
-    btn.onclick = async () => {
+    btn.onclick = async (ev, prefill) => {
       elencoEl.querySelectorAll('[data-canale-idx]').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       const r = righe[btn.dataset.canaleIdx];
       const canaleId = await ottieniCanale(r.tipo, profilo.laboratorio_id, r.studio_id, r.medico_id);
-      renderChatThread(canaleId, 'LABORATORIO', document.getElementById('chat-container'));
+      await renderChatThread(canaleId, 'LABORATORIO', document.getElementById('chat-container'));
+      if(typeof prefill === 'string'){
+        const input = document.getElementById('chat-input');
+        if(input) input.value = prefill;
+      }
     };
   });
+  if(target){
+    const idx = righe.findIndex(r => target.medico_id ? r.medico_id === target.medico_id : (r.tipo === 'studio' && r.studio_id === target.studio_id));
+    if(idx >= 0){
+      const b = elencoEl.querySelector(`[data-canale-idx="${idx}"]`);
+      if(b) b.onclick(null, target.prefill || '');
+    }
+  }
 }
 
 async function renderMessaggiStudio(profilo, prefill){
@@ -2345,9 +2472,20 @@ async function renderUtenti(){
   content.innerHTML = `
     <h1>Utenti</h1>
     <p class="lead">Tutti gli accessi creati sulla piattaforma.</p>
+    <div id="richieste-reset"></div>
     <div id="lista-utenti"><p class="empty">Caricamento…</p></div>
   `;
   const el = document.getElementById('lista-utenti');
+  const { data: richieste } = await sb.from('richieste_reset').select('email, created_at').eq('evasa', false).order('created_at');
+  if(richieste && richieste.length){
+    document.getElementById('richieste-reset').innerHTML = `
+      <div style="background:var(--block);color:#fff;border-radius:8px;padding:14px 18px;margin-bottom:18px;">
+        <strong>🔑 ${richieste.length} richiesta/e di nuova password</strong>
+        ${richieste.map(r => `<div style="margin-top:8px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+          <span>${escH(r.email)} <span style="opacity:.8;font-size:12px;">(${new Date(r.created_at).toLocaleString('it-IT')})</span></span>
+          <button class="btn secondary" data-reset-utente="${escH(r.email)}">Imposta password temporanea</button></div>`).join('')}
+      </div>`;
+  }
   const { data: { session } } = await sb.auth.getSession();
   try{
     const resp = await fetch(`${window.NUOVALAB_CONFIG.SUPABASE_URL}/functions/v1/hyper-worker`, {
@@ -2374,7 +2512,7 @@ async function renderUtenti(){
         </tr>`).join('')}
       </tbody></table>
     `;
-    el.querySelectorAll('[data-reset-utente]').forEach(btn => {
+    document.getElementById('content').querySelectorAll('[data-reset-utente]').forEach(btn => {
       btn.onclick = () => apriModaleResetRapido(btn.dataset.resetUtente);
     });
   } catch(e){
@@ -2389,7 +2527,8 @@ function apriModaleResetRapido(email){
     <div class="box" style="width:380px;">
       <h1 style="font-size:16px;">Reimposta password</h1>
       <p style="font-size:13px;color:var(--muted);">${email}</p>
-      <div class="field"><label>Nuova password</label><input id="rr-password" type="text"></div>
+      <div class="field"><label>Password temporanea</label><input id="rr-password" type="text"></div>
+      <p style="font-size:12px;color:var(--muted);">Comunicala all'utente (telefono/WhatsApp): al primo accesso dovrà sceglierne una nuova.</p>
       <button class="btn block" id="rr-salva">Reimposta</button>
       <button class="btn secondary block" id="rr-annulla" style="margin-top:6px;">Annulla</button>
       <div class="msg" id="rr-msg"></div>
@@ -2412,8 +2551,9 @@ function apriModaleResetRapido(email){
       });
       const risultato = await resp.json();
       if(!resp.ok){ mostraMsg('rr-msg', 'Errore: ' + (risultato.error || 'sconosciuto'), 'error'); return; }
-      mostraMsg('rr-msg', 'Password reimpostata.', 'ok');
-      setTimeout(() => wrap.remove(), 1200);
+      await sb.rpc('admin_segna_reset', { p_email: email });
+      mostraMsg('rr-msg', 'Password temporanea impostata. Comunicala all\'utente.', 'ok');
+      setTimeout(() => { wrap.remove(); renderUtenti(); }, 1500);
     } catch(e){
       mostraMsg('rr-msg', 'Errore di rete: ' + e.message, 'error');
     }
