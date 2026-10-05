@@ -83,6 +83,10 @@
     .btn{padding:10px 14px;}
     input,select,textarea{font-size:16px !important;}
   }
+  tr.riga-rossa td{background:#f4c7c1 !important;color:#7a1f16;border-bottom-color:#e39d94;}
+  tr.riga-rossa td:first-child{border-left:6px solid var(--block);font-weight:700;}
+  tr.riga-rossa .btn.secondary{background:#fff;}
+  tr.riga-rossa td .badge.off{background:#fff;}
   #print-area{display:none;}
   @media print{
     body > *:not(#print-area){display:none !important;}
@@ -1413,7 +1417,7 @@ async function caricaLavorazioniLab(profilo){
           cellaConsegna = `${j.data_consegna_confermata || j.data_consegna_richiesta}${j.consegna_stato==='riprogrammata' ? `<div><span class="badge off"><span class="dot"></span>Riprogrammata</span></div>` : ''}<br><button class="btn secondary" data-riprogramma="${j.id}" style="margin-top:4px;">📅 Riprogramma</button>`;
         }
         return `
-        <tr${j.stato_lab==='da_rifare' ? ' style="background:#f8e6e3;"' : ''}>
+        <tr class="${(j.stato_lab==='da_rifare' || j.stato_lab==='in_ritardo' || ultimaSeg) ? 'riga-rossa' : ''}" data-riga-lav="${j.id}" data-ha-seg="${ultimaSeg ? '1' : ''}">
           <td>${j.id}</td>
           <td>${j.studi?.nome || '—'}
             <div style="margin-top:4px;white-space:nowrap;">
@@ -1483,6 +1487,8 @@ async function caricaLavorazioniLab(profilo){
   el.querySelectorAll('[data-set-stato]').forEach(sel => {
     sel.onchange = async () => {
       const aggiornamento = { stato_lab: sel.value };
+      const trRiga = sel.closest('tr');
+      if(trRiga) trRiga.classList.toggle('riga-rossa', sel.value === 'da_rifare' || sel.value === 'in_ritardo' || !!trRiga.dataset.haSeg);
       if(sel.value === 'in_consegna') aggiornamento.data_in_consegna = new Date().toISOString().slice(0,10);
       const { error } = await sb.from('lavorazioni').update(aggiornamento).eq('id', sel.dataset.setStato);
       if(error) alert('Errore: ' + error.message);
