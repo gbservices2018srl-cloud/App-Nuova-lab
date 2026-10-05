@@ -2515,9 +2515,21 @@ function vaiA(chiave){
   if(b) b.click();
 }
 
+async function sessioneScaduta(){
+  if(__novita.timer){ clearInterval(__novita.timer); __novita.timer = null; }
+  __novita.profilo = null;
+  try{ await sb.auth.signOut(); }catch(e){}
+  document.getElementById('banner-novita').style.display = 'none';
+  document.getElementById('app-screen').style.display = 'none';
+  document.getElementById('login-screen').style.display = 'flex';
+  mostraMsg('login-msg', 'La sessione è scaduta: accedi di nuovo.', 'error');
+}
+
 async function controllaNovita(){
   const profilo = __novita.profilo;
   if(!profilo) return;
+  const { data: u, error: errSessione } = await sb.auth.getUser();
+  if(errSessione || !u || !u.user){ await sessioneScaduta(); return; }
   const msg = await contaMessaggiNonLetti(profilo);
   let reset = 0;
   if(profilo.ruolo === 'ADMIN'){
