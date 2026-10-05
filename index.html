@@ -1509,7 +1509,10 @@ async function renderListinoPrezzi(profilo){
     .select('studio_id, studi(nome)').eq('laboratorio_id', profilo.laboratorio_id).eq('stato', 'attivo');
 
   content.innerHTML = `
-    <h1>Listino prezzi</h1>
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;">
+      <h1>Listino prezzi</h1>
+      <button class="btn secondary" id="btn-listino-pdf">📄 Esporta PDF</button>
+    </div>
     <p class="lead">Prezzo per tipo di lavoro, personalizzabile per ogni studio. Lo studio non vede mai questi importi.</p>
     <div class="field" style="max-width:320px;margin-bottom:18px;">
       <label>Studio</label>
@@ -1523,13 +1526,34 @@ async function renderListinoPrezzi(profilo){
   `;
 
   document.getElementById('listino-studio').onchange = (e) => caricaListino(profilo, e.target.value);
+  document.getElementById('btn-listino-pdf').onclick = () => {
+    const L = window.__listinoCorrente;
+    if(!L || !L.righe.length){ alert('Il listino è vuoto.'); return; }
+    const sel = document.getElementById('listino-studio');
+    const titoloStudio = L.studioId === '__base__' ? 'Listino base' : sel.options[sel.selectedIndex].text;
+    // allinea i prezzi ai valori attualmente nei campi
+    const prezzi = {};
+    document.querySelectorAll('#tabella-listino input[data-idx]').forEach(inp => { prezzi[inp.dataset.idx] = inp.value.trim().replace(',', '.'); });
+    let corrente = null, corpo = '';
+    L.righe.forEach((r, i) => {
+      if(r.macro !== corrente){ corrente = r.macro; corpo += `<tr><td colspan="2" style="background:#f0efe9;font-weight:700;padding:7px 8px;">${escH(r.macro)}</td></tr>`; }
+      const v = prezzi[i];
+      corpo += `<tr><td style="padding:6px 8px;border-bottom:1px solid #ddd;">${escH(r.micro)}</td><td style="padding:6px 8px;border-bottom:1px solid #ddd;text-align:right;white-space:nowrap;">${v ? '€ ' + parseFloat(v).toLocaleString('it-IT',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—'}</td></tr>`;
+    });
+    document.getElementById('print-area').innerHTML = `
+      <h1 style="font-size:20px;margin:0 0 2px;">Listino prezzi</h1>
+      <div style="color:#666;font-size:13px;margin-bottom:16px;">${escH(window.PROFILO_CORRENTE && window.PROFILO_CORRENTE.nome_lab || 'Nuovalab')} · ${escH(titoloStudio)} · ${new Date().toLocaleDateString('it-IT')}</div>
+      <table style="width:100%;border-collapse:collapse;font-size:13px;border:none;"><tbody>${corpo}</tbody></table>
+      `;
+    window.print();
+  };
   caricaListino(profilo, '__base__');
 }
 
 async function caricaListino(profilo, studioId){
   const el = document.getElementById('tabella-listino');
-  const { data: macros } = await sb.from('tipi_lavoro_macro').select('nome, tipi_lavoro_micro(nome)').eq('laboratorio_id', profilo.laboratorio_id).order('nome');
-  if(!macros || macros.length === 0){ el.innerHTML = `<p class="empty">Nessuna categoria impostata: vai su Impostazioni per crearne.</p>`; return; }
+  const { data: macros } = await sb.from('tipi_lavoro_macro').select('id, nome, tipi_lavoro_micro(id, nome)').eq('laboratorio_id', profilo.laboratorio_id).order('nome');
+  if(!macros) { el.innerHTML = `<p class="empty">Errore di caricamento.</p>`; return; }
 
   const tabella = studioId === '__base__' ? 'listino_base' : 'listino_prezzi';
   let query = sb.from(tabella).select('tipo_macro, tipo_micro, prezzo').eq('laboratorio_id', profilo.laboratorio_id);
@@ -1539,19 +1563,32 @@ async function caricaListino(profilo, studioId){
   (prezzi || []).forEach(p => { mappaPrezzi[`${p.tipo_macro}||${p.tipo_micro}`] = p.prezzo; });
 
   const righe = [];
-  macros.forEach(m => (m.tipi_lavoro_micro || []).forEach(mi => righe.push({ macro: m.nome, micro: mi.nome })));
+  macros.forEach(m => (m.tipi_lavoro_micro || []).slice().sort((a,b)=>a.nome.localeCompare(b.nome)).forEach(mi => righe.push({ macro: m.nome, macroId: m.id, micro: mi.nome, microId: mi.id })));
+  window.__listinoCorrente = { righe, mappaPrezzi, studioId };
 
   el.innerHTML = `
-    <div class="tbl-wrap"><table><thead><tr><th>Categoria</th><th>Tipo di lavoro</th><th>Prezzo (€)</th><th></th></tr></thead><tbody>
+    <div class="tbl-wrap"><table><thead><tr><th>Categoria</th><th>Tipo di lavoro</th><th>Prezzo (€)</th><th></th><th></th></tr></thead><tbody>
       ${righe.map((r,i) => {
         const p = mappaPrezzi[`${r.macro}||${r.micro}`];
-        return `<tr><td>${escH(r.macro)}</td><td>${escH(r.micro)}</td>
+        return `<tr><td><input type="text" class="inline-text" value="${escH(r.macro)}" data-ren-macro-i="${i}"></td><td><input type="text" class="inline-text" value="${escH(r.micro)}" data-ren-micro-i="${i}"></td>
           <td><input type="number" min="0" step="0.01" inputmode="decimal" class="inline-num" style="width:100px" value="${p!=null?p:''}" placeholder="—" data-idx="${i}"></td>
-          <td class="stato-salvataggio" data-stato="${i}" style="font-size:12px;color:var(--muted);width:90px;"></td></tr>`;
+          <td class="stato-salvataggio" data-stato="${i}" style="font-size:12px;color:var(--muted);width:90px;"></td>
+          <td><button class="btn danger" data-del-voce="${i}" title="Elimina voce" style="padding:4px 9px;">🗑</button></td></tr>`;
       }).join('')}
-      ${righe.length===0 ? `<tr><td colspan="4" class="empty">Nessun tipo di lavoro impostato: aggiungi le sotto-voci in Impostazioni.</td></tr>` : ''}
+      ${righe.length===0 ? `<tr><td colspan="5" class="empty">Nessuna voce: aggiungila qui sotto.</td></tr>` : ''}
     </tbody></table></div>
-    <p style="font-size:12px;color:var(--muted);">I prezzi si salvano automaticamente quando esci dal campo. Per cambiare i nomi delle voci vai in Impostazioni → Categorie e tipi di lavoro.</p>
+    <p style="font-size:12px;color:var(--muted);">Modifica nomi e prezzi direttamente nella tabella: si salva quando esci dal campo.</p>
+    <div class="card" style="margin-top:14px;">
+      <h3 style="margin-top:0;font-size:13.5px;">Aggiungi voce al listino</h3>
+      <div class="form-grid" style="grid-template-columns:1fr 1fr 120px auto;">
+        <div class="field"><label>Categoria</label><input id="lv-macro" list="lv-macro-list" placeholder="Scegli o scrivi nuova">
+          <datalist id="lv-macro-list">${macros.map(m=>`<option value="${escH(m.nome)}">`).join('')}</datalist></div>
+        <div class="field"><label>Tipo di lavoro</label><input id="lv-micro" placeholder="Es. Corona in zirconia"></div>
+        <div class="field"><label>Prezzo (€)</label><input id="lv-prezzo" type="number" min="0" step="0.01" inputmode="decimal"></div>
+        <button class="btn" id="lv-aggiungi">+ Aggiungi</button>
+      </div>
+      <div class="msg" id="lv-msg"></div>
+    </div>
   `;
 
   el.querySelectorAll('input[data-idx]').forEach(input => {
@@ -1583,6 +1620,68 @@ async function caricaListino(profilo, studioId){
     input.addEventListener('blur', salva);
     input.addEventListener('keydown', e => { if(e.key === 'Enter') input.blur(); });
   });
+
+  // rinomina categoria / tipo direttamente in tabella
+  el.querySelectorAll('[data-ren-macro-i]').forEach(inp => {
+    const r = righe[parseInt(inp.dataset.renMacroI)];
+    inp.onchange = async () => {
+      const nuovo = inp.value.trim();
+      if(!nuovo || nuovo === r.macro){ inp.value = r.macro; return; }
+      const { error } = await sb.from('tipi_lavoro_macro').update({ nome: nuovo }).eq('id', r.macroId);
+      if(error){ alert('Errore: ' + error.message); inp.value = r.macro; return; }
+      await migraNomeListino(profilo, { macroVecchio: r.macro, macroNuovo: nuovo });
+      caricaListino(profilo, studioId);
+    };
+  });
+  el.querySelectorAll('[data-ren-micro-i]').forEach(inp => {
+    const r = righe[parseInt(inp.dataset.renMicroI)];
+    inp.onchange = async () => {
+      const nuovo = inp.value.trim();
+      if(!nuovo || nuovo === r.micro){ inp.value = r.micro; return; }
+      const { error } = await sb.from('tipi_lavoro_micro').update({ nome: nuovo }).eq('id', r.microId);
+      if(error){ alert('Errore: ' + error.message); inp.value = r.micro; return; }
+      await migraNomeListino(profilo, { macro: r.macro, microVecchio: r.micro, microNuovo: nuovo });
+      caricaListino(profilo, studioId);
+    };
+  });
+  el.querySelectorAll('[data-del-voce]').forEach(btn => {
+    btn.onclick = async () => {
+      const r = righe[parseInt(btn.dataset.delVoce)];
+      if(!confirm(`Eliminare "${r.micro}" dal listino e dai tipi di lavoro? Le pratiche già create non vengono toccate.`)) return;
+      const { error } = await sb.from('tipi_lavoro_micro').delete().eq('id', r.microId);
+      if(error){ alert('Errore: ' + error.message); return; }
+      await sb.from('listino_base').delete().eq('laboratorio_id', profilo.laboratorio_id).eq('tipo_macro', r.macro).eq('tipo_micro', r.micro);
+      await sb.from('listino_prezzi').delete().eq('laboratorio_id', profilo.laboratorio_id).eq('tipo_macro', r.macro).eq('tipo_micro', r.micro);
+      caricaListino(profilo, studioId);
+    };
+  });
+  // aggiungi voce
+  document.getElementById('lv-aggiungi').onclick = async () => {
+    const macroNome = document.getElementById('lv-macro').value.trim();
+    const microNome = document.getElementById('lv-micro').value.trim();
+    const raw = document.getElementById('lv-prezzo').value.trim().replace(',', '.');
+    if(!macroNome || !microNome){ mostraMsg('lv-msg', 'Inserisci categoria e tipo di lavoro.', 'error'); return; }
+    let macro = macros.find(m => m.nome.toLowerCase() === macroNome.toLowerCase());
+    let macroId = macro && macro.id;
+    if(!macroId){
+      const { data, error } = await sb.from('tipi_lavoro_macro').insert({ laboratorio_id: profilo.laboratorio_id, nome: macroNome }).select('id').single();
+      if(error){ mostraMsg('lv-msg', 'Errore: ' + error.message, 'error'); return; }
+      macroId = data.id;
+    }
+    const nomeMacroFinale = macro ? macro.nome : macroNome;
+    const { error: e2 } = await sb.from('tipi_lavoro_micro').insert({ macro_id: macroId, nome: microNome });
+    if(e2){ mostraMsg('lv-msg', e2.message.includes('duplicate') ? 'Questa voce esiste già.' : 'Errore: ' + e2.message, 'error'); return; }
+    if(raw !== ''){
+      const prezzo = parseFloat(raw);
+      if(!isNaN(prezzo) && prezzo >= 0){
+        const riga = { laboratorio_id: profilo.laboratorio_id, tipo_macro: nomeMacroFinale, tipo_micro: microNome, prezzo };
+        if(tabella === 'listino_prezzi') riga.studio_id = studioId;
+        const conflictCols = tabella === 'listino_prezzi' ? 'laboratorio_id,studio_id,tipo_macro,tipo_micro' : 'laboratorio_id,tipo_macro,tipo_micro';
+        await sb.from(tabella).upsert(riga, { onConflict: conflictCols });
+      }
+    }
+    caricaListino(profilo, studioId);
+  };
 }
 
 /* ---------- LABORATORIO: IMPOSTAZIONI ---------- */
