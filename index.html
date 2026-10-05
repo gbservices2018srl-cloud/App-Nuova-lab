@@ -2674,41 +2674,33 @@ async function renderUtenti(){
           ${r.registrata === false ? `<button class="btn secondary" data-ignora-richiesta="${escH(r.email)}">Ignora</button>` : `<button class="btn secondary" data-reset-utente="${escH(r.email)}">Imposta password temporanea</button>`}</div>`).join('')}
       </div>`;
   }
-  const { data: { session } } = await sb.auth.getSession();
-  try{
-    const resp = await fetch(`${window.NUOVALAB_CONFIG.SUPABASE_URL}/functions/v1/hyper-worker`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${session.access_token}`,
-        'apikey': window.NUOVALAB_CONFIG.SUPABASE_ANON_KEY
-      },
-      body: JSON.stringify({ action: 'list_users' })
-    });
-    const risultato = await resp.json();
-    if(!resp.ok){ el.innerHTML = `<p class="empty">Errore: ${risultato.error || 'sconosciuto'}</p>`; return; }
-    if(!risultato.utenti || risultato.utenti.length === 0){ el.innerHTML = `<p class="empty">Nessun utente creato.</p>`; return; }
+  // i pulsanti delle richieste funzionano a prescindere dall'elenco utenti
+  const contenuto = document.getElementById('content');
+  contenuto.querySelectorAll('[data-ignora-richiesta]').forEach(btn => {
+    btn.onclick = async () => { await sb.from('richieste_reset').update({ evasa: true }).eq('email', btn.dataset.ignoraRichiesta); renderUtenti(); controllaNovita(); };
+  });
+  contenuto.querySelectorAll('[data-reset-utente]').forEach(btn => {
+    btn.onclick = () => apriModaleResetRapido(btn.dataset.resetUtente);
+  });
 
-    el.innerHTML = `
-      <table><thead><tr><th>Email</th><th>Ruolo</th><th>Entità collegata</th><th>Stato</th><th>Azioni</th></tr></thead><tbody>
-        ${risultato.utenti.map(u => `<tr>
-          <td>${u.email}</td>
-          <td>${u.ruolo}</td>
-          <td>${u.entita}</td>
-          <td>${u.attivo ? `<span class="badge ok"><span class="dot"></span>Attivo</span>` : `<span class="badge off"><span class="dot"></span>Disattivato</span>`}</td>
-          <td><button class="btn secondary" data-reset-utente="${u.email}">Reimposta password</button></td>
-        </tr>`).join('')}
-      </tbody></table>
-    `;
-    document.getElementById('content').querySelectorAll('[data-ignora-richiesta]').forEach(btn => {
-      btn.onclick = async () => { await sb.from('richieste_reset').update({ evasa: true }).eq('email', btn.dataset.ignoraRichiesta); renderUtenti(); controllaNovita(); };
-    });
-    document.getElementById('content').querySelectorAll('[data-reset-utente]').forEach(btn => {
-      btn.onclick = () => apriModaleResetRapido(btn.dataset.resetUtente);
-    });
-  } catch(e){
-    el.innerHTML = `<p class="empty">Errore di rete: ${e.message}</p>`;
-  }
+  const { data: utenti, error } = await sb.rpc('admin_elenco_utenti');
+  if(error){ el.innerHTML = `<p class="empty">Errore: ${escH(error.message)}</p>`; return; }
+  if(!utenti || utenti.length === 0){ el.innerHTML = `<p class="empty">Nessun utente creato.</p>`; return; }
+
+  el.innerHTML = `
+    <div class="tbl-wrap"><table><thead><tr><th>Email</th><th>Ruolo</th><th>Entità collegata</th><th>Stato</th><th>Azioni</th></tr></thead><tbody>
+      ${utenti.map(u => `<tr>
+        <td>${escH(u.email)}</td>
+        <td>${escH(u.ruolo)}</td>
+        <td>${escH(u.entita)}</td>
+        <td>${u.attivo ? `<span class="badge ok"><span class="dot"></span>Attivo</span>` : `<span class="badge off"><span class="dot"></span>Disattivato</span>`}</td>
+        <td><button class="btn secondary" data-reset-utente="${escH(u.email)}">Reimposta password</button></td>
+      </tr>`).join('')}
+    </tbody></table></div>
+  `;
+  el.querySelectorAll('[data-reset-utente]').forEach(btn => {
+    btn.onclick = () => apriModaleResetRapido(btn.dataset.resetUtente);
+  });
 }
 
 function apriModaleResetRapido(email){
