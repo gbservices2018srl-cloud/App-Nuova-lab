@@ -137,6 +137,7 @@
       <div><button class="hamburger" id="btn-menu" aria-label="Menu">☰</button><span class="brand">Nuovalab</span></div>
       <div><span id="chi-sono" style="font-size:13px;color:var(--muted);margin-right:14px;"></span><button class="btn secondary" id="btn-logout">Esci</button></div>
     </div>
+    <div id="banner-novita" style="display:none;"></div>
     <div class="content" id="content"></div>
   </div>
 </div>
@@ -166,6 +167,8 @@ document.getElementById('btn-login').addEventListener('click', async ()=>{
 });
 
 document.getElementById('btn-logout').addEventListener('click', async ()=>{
+  if(__novita.timer){ clearInterval(__novita.timer); __novita.timer = null; } __novita.profilo = null;
+  document.getElementById('banner-novita').style.display = 'none';
   await sb.auth.signOut();
   document.getElementById('app-screen').style.display = 'none';
   document.getElementById('login-screen').style.display = 'flex';
@@ -293,11 +296,7 @@ async function avviaApp(){
   navEl.addEventListener('click', () => { if(_mobile()) document.body.classList.remove('sidebar-aperta'); });
   items[0].fn();
   aggiornaBadgeMessaggi(profilo);
-  if(profilo.ruolo === 'ADMIN'){
-    const { count } = await sb.from('richieste_reset').select('id', { count: 'exact', head: true }).eq('evasa', false);
-    const bu = navEl.querySelector('[data-nav-key="utenti"]');
-    if(bu && count) bu.innerHTML = `Utenti <span style="background:var(--block);color:#fff;border-radius:10px;padding:1px 7px;font-size:11px;margin-left:4px;">${count}</span>`;
-  }
+  avviaControlloNovita(profilo);
 }
 
 /* ---------- ADMIN: SCHEDE LABORATORI / STUDI ---------- */
@@ -2403,6 +2402,7 @@ async function contaMessaggiNonLetti(profilo){
 
 async function aggiornaBadgeMessaggi(profilo){
   if(!profilo) return;
+  if(__novita.profilo){ controllaNovita(); return; }
   const btn = document.querySelector('[data-nav-key="messaggi"]');
   if(!btn) return;
   const nonLetti = await contaMessaggiNonLetti(profilo);
@@ -2493,6 +2493,83 @@ async function renderMessaggiMedico(profilo){
   apri(collegamenti[0].laboratorio_id);
 }
 
+
+/* ---------- AVVISI IN TEMPO QUASI REALE (messaggi non letti, richieste password) ---------- */
+let __novita = { timer: null, prec: { msg: null, reset: null }, profilo: null };
+
+function suonoAvviso(){
+  try{
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    [880, 660].forEach((f, i) => {
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.frequency.value = f; o.connect(g); g.connect(ctx.destination);
+      g.gain.setValueAtTime(0.15, ctx.currentTime + i*0.18);
+      g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + i*0.18 + 0.16);
+      o.start(ctx.currentTime + i*0.18); o.stop(ctx.currentTime + i*0.18 + 0.17);
+    });
+  }catch(e){}
+}
+
+function vaiA(chiave){
+  const b = document.querySelector(`#sidebar-nav [data-nav-key="${chiave}"]`);
+  if(b) b.click();
+}
+
+async function controllaNovita(){
+  const profilo = __novita.profilo;
+  if(!profilo) return;
+  const msg = await contaMessaggiNonLetti(profilo);
+  let reset = 0;
+  if(profilo.ruolo === 'ADMIN'){
+    const { count } = await sb.from('richieste_reset').select('id', { count: 'exact', head: true }).eq('evasa', false);
+    reset = count || 0;
+  }
+  // badge menu
+  const bm = document.querySelector('#sidebar-nav [data-nav-key="messaggi"]');
+  if(bm) bm.innerHTML = msg > 0 ? `Messaggi <span style="background:var(--block);color:#fff;border-radius:10px;padding:1px 7px;font-size:11px;margin-left:6px;">${msg}</span>` : 'Messaggi';
+  const bu = document.querySelector('#sidebar-nav [data-nav-key="utenti"]');
+  if(bu) bu.innerHTML = reset > 0 ? `Utenti <span style="background:var(--block);color:#fff;border-radius:10px;padding:1px 7px;font-size:11px;margin-left:6px;">${reset}</span>` : 'Utenti';
+
+  // banner rosso sempre visibile
+  const banner = document.getElementById('banner-novita');
+  const parti = [];
+  if(msg > 0) parti.push(`<button data-vai="messaggi" style="all:unset;cursor:pointer;font-weight:700;text-decoration:underline;">✉ ${msg} messagg${msg===1?'io non letto':'i non letti'}</button>`);
+  if(reset > 0) parti.push(`<button data-vai="utenti" style="all:unset;cursor:pointer;font-weight:700;text-decoration:underline;">🔑 ${reset} richiesta/e di nuova password</button>`);
+  if(parti.length){
+    banner.style.cssText = 'display:block;background:var(--block);color:#fff;padding:11px 20px;font-size:14px;position:sticky;top:0;z-index:30;box-shadow:0 2px 6px rgba(0,0,0,.2);';
+    banner.innerHTML = parti.join('<span style="margin:0 14px;opacity:.6;">|</span>');
+    banner.querySelectorAll('[data-vai]').forEach(b => b.onclick = () => vaiA(b.dataset.vai));
+  } else {
+    banner.style.display = 'none'; banner.innerHTML = '';
+  }
+  document.title = (msg + reset > 0 ? `(${msg + reset}) ` : '') + 'Nuovalab';
+
+  // suono + notifica del browser solo quando il numero AUMENTA
+  const cresciuti = [];
+  if(__novita.prec.msg !== null && msg > __novita.prec.msg) cresciuti.push('Nuovo messaggio ricevuto');
+  if(__novita.prec.reset !== null && reset > __novita.prec.reset) cresciuti.push('Nuova richiesta di reset password');
+  if(cresciuti.length){
+    suonoAvviso();
+    if('Notification' in window && Notification.permission === 'granted' && document.hidden){
+      try{ new Notification('Nuovalab', { body: cresciuti.join(' · ') }); }catch(e){}
+    }
+    // se la dashboard del laboratorio è aperta, aggiorna anche il suo banner/lista
+    if(profilo.ruolo === 'LABORATORIO' && document.querySelector('#lista-lavorazioni-lab') && typeof renderDashboardLavorazioni === 'function' && document.querySelector('#sidebar-nav .nav-btn.active')?.dataset.navKey === 'dashboard'){
+      renderDashboardLavorazioni(profilo);
+    }
+  }
+  __novita.prec.msg = msg; __novita.prec.reset = reset;
+}
+
+function avviaControlloNovita(profilo){
+  __novita.profilo = profilo;
+  __novita.prec = { msg: null, reset: null };
+  if(__novita.timer) clearInterval(__novita.timer);
+  controllaNovita();
+  __novita.timer = setInterval(controllaNovita, 15000);
+}
+document.addEventListener('visibilitychange', () => { if(!document.hidden) controllaNovita(); });
+
 /* ---------- NOTIFICHE PUSH ---------- */
 function base64urlToUint8Array(base64url){
   const padding = '='.repeat((4 - base64url.length % 4) % 4);
@@ -2575,14 +2652,14 @@ async function renderUtenti(){
     <div id="lista-utenti"><p class="empty">Caricamento…</p></div>
   `;
   const el = document.getElementById('lista-utenti');
-  const { data: richieste } = await sb.from('richieste_reset').select('email, created_at').eq('evasa', false).order('created_at');
+  const { data: richieste } = await sb.from('richieste_reset').select('email, created_at, registrata').eq('evasa', false).order('created_at');
   if(richieste && richieste.length){
     document.getElementById('richieste-reset').innerHTML = `
       <div style="background:var(--block);color:#fff;border-radius:8px;padding:14px 18px;margin-bottom:18px;">
         <strong>🔑 ${richieste.length} richiesta/e di nuova password</strong>
         ${richieste.map(r => `<div style="margin-top:8px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
-          <span>${escH(r.email)} <span style="opacity:.8;font-size:12px;">(${new Date(r.created_at).toLocaleString('it-IT')})</span></span>
-          <button class="btn secondary" data-reset-utente="${escH(r.email)}">Imposta password temporanea</button></div>`).join('')}
+          <span>${escH(r.email)} <span style="opacity:.8;font-size:12px;">(${new Date(r.created_at).toLocaleString('it-IT')})</span>${r.registrata === false ? ' <strong style="background:#fff;color:var(--block);border-radius:4px;padding:1px 6px;font-size:11px;">email NON registrata</strong>' : ''}</span>
+          ${r.registrata === false ? `<button class="btn secondary" data-ignora-richiesta="${escH(r.email)}">Ignora</button>` : `<button class="btn secondary" data-reset-utente="${escH(r.email)}">Imposta password temporanea</button>`}</div>`).join('')}
       </div>`;
   }
   const { data: { session } } = await sb.auth.getSession();
@@ -2611,6 +2688,9 @@ async function renderUtenti(){
         </tr>`).join('')}
       </tbody></table>
     `;
+    document.getElementById('content').querySelectorAll('[data-ignora-richiesta]').forEach(btn => {
+      btn.onclick = async () => { await sb.from('richieste_reset').update({ evasa: true }).eq('email', btn.dataset.ignoraRichiesta); renderUtenti(); controllaNovita(); };
+    });
     document.getElementById('content').querySelectorAll('[data-reset-utente]').forEach(btn => {
       btn.onclick = () => apriModaleResetRapido(btn.dataset.resetUtente);
     });
