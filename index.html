@@ -259,7 +259,8 @@ async function avviaApp(){
       { key:'laboratori', label:'Laboratori', fn: () => renderGestioneLaboratori() },
       { key:'studi', label:'Studi', fn: () => renderGestioneStudi() },
       { key:'accessi', label:'Crea accesso', fn: () => renderCreaAccesso() },
-      { key:'utenti', label:'Utenti', fn: () => renderUtenti() }
+      { key:'utenti', label:'Utenti', fn: () => renderUtenti() },
+      { key:'pazienti-admin', label:'Pazienti', fn: () => renderPazientiAdmin() }
     ],
     LABORATORIO: [
       { key:'dashboard', label:'Dashboard lavorazioni', fn: () => renderDashboardLavorazioni(profilo) },
@@ -2209,11 +2210,73 @@ async function caricaPazienti(profilo){
   if(error){ el.innerHTML = `<p class="empty">Errore: ${error.message}</p>`; return; }
   if(!data || data.length === 0){ el.innerHTML = `<p class="empty">Nessun paziente ancora registrato.</p>`; return; }
   el.innerHTML = `
-    <table><thead><tr><th>Cognome</th><th>Nome</th><th>Data nascita</th><th>Cartella</th><th>Consenso privacy</th></tr></thead><tbody>
-      ${data.map(p => `<tr><td>${p.cognome}</td><td>${p.nome}</td><td>${p.data_nascita || '—'}</td><td>${p.riferimento_cartella || '—'}</td>
-        <td>${p.consenso_privacy ? `<span class="badge ok"><span class="dot"></span>${p.data_consenso||''}</span>` : `<span class="badge off"><span class="dot"></span>Mancante</span>`}</td></tr>`).join('')}
+    <table><thead><tr><th>Cognome</th><th>Nome</th><th>Data nascita</th><th>Cartella</th><th>Consenso privacy</th><th></th></tr></thead><tbody>
+      ${data.map(p => `<tr><td>${escH(p.cognome)}</td><td>${escH(p.nome)}</td><td>${p.data_nascita || '—'}</td><td>${escH(p.riferimento_cartella || '—')}</td>
+        <td>${p.consenso_privacy ? `<span class="badge ok"><span class="dot"></span>${p.data_consenso||''}</span>` : `<span class="badge off"><span class="dot"></span>Mancante</span>`}</td>
+        <td><button class="btn danger" data-elimina-paziente="${p.id}" data-nome="${escH(p.cognome + ' ' + p.nome)}" style="font-size:12px;padding:4px 9px;">Elimina</button></td></tr>`).join('')}
     </tbody></table>
   `;
+  el.querySelectorAll('[data-elimina-paziente]').forEach(btn => {
+    btn.onclick = () => apriModaleEliminaPaziente(btn.dataset.eliminaPaziente, btn.dataset.nome, () => caricaPazienti(profilo));
+  });
+}
+
+/* ---------- ELIMINAZIONE PAZIENTE (protetta da password del titolare) ---------- */
+function apriModaleEliminaPaziente(id, nome, dopo){
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;z-index:999;padding:16px;';
+  wrap.innerHTML = `
+    <div class="box" style="width:400px;max-width:100%;">
+      <h1 style="font-size:16px;">Elimina paziente</h1>
+      <p style="font-size:13.5px;margin:0 0 8px;"><strong>${nome}</strong></p>
+      <p style="font-size:12.5px;color:var(--muted);margin:0 0 12px;">Il paziente viene cancellato dall'elenco. Le lavorazioni già registrate restano nell'archivio con il nome scritto nella pratica. L'operazione non si può annullare.</p>
+      <div class="field"><label>Password di eliminazione</label><input id="ep-password" type="password" autocomplete="off"></div>
+      <button class="btn danger block" id="ep-conferma">Elimina definitivamente</button>
+      <button class="btn secondary block" id="ep-annulla" style="margin-top:6px;">Annulla</button>
+      <div class="msg" id="ep-msg"></div>
+    </div>`;
+  document.body.appendChild(wrap);
+  const inp = document.getElementById('ep-password');
+  setTimeout(() => inp.focus(), 30);
+  document.getElementById('ep-annulla').onclick = () => wrap.remove();
+  const conferma = async () => {
+    if(!inp.value){ mostraMsg('ep-msg', 'Inserisci la password.', 'error'); return; }
+    const btn = document.getElementById('ep-conferma'); btn.disabled = true;
+    const { error } = await sb.rpc('elimina_paziente', { p_id: id, p_password: inp.value });
+    btn.disabled = false;
+    if(error){ mostraMsg('ep-msg', error.message, 'error'); inp.select(); return; }
+    wrap.remove();
+    if(dopo) dopo();
+  };
+  document.getElementById('ep-conferma').onclick = conferma;
+  inp.addEventListener('keydown', ev => { if(ev.key === 'Enter') conferma(); });
+}
+
+/* ---------- ADMIN: PAZIENTI DI TUTTI GLI STUDI ---------- */
+async function renderPazientiAdmin(){
+  const content = document.getElementById('content');
+  content.innerHTML = `
+    <h1>Pazienti</h1>
+    <p class="lead">I pazienti registrati dagli studi. Per eliminarne uno serve la password di eliminazione.</p>
+    <div class="field" style="max-width:320px;"><label>Cerca</label><input id="pa-cerca" placeholder="Cognome, nome o studio"></div>
+    <div id="lista-pazienti-admin"><p class="empty">Caricamento…</p></div>`;
+  const el = document.getElementById('lista-pazienti-admin');
+  const { data, error } = await sb.rpc('admin_elenco_pazienti');
+  if(error){ el.innerHTML = `<p class="empty">Errore: ${escH(error.message)}</p>`; return; }
+  const disegna = () => {
+    const q = document.getElementById('pa-cerca').value.trim().toLowerCase();
+    const righe = (data || []).filter(p => !q || `${p.cognome} ${p.nome} ${p.studio || ''}`.toLowerCase().includes(q));
+    if(!righe.length){ el.innerHTML = `<p class="empty">${(data||[]).length ? 'Nessun paziente corrisponde alla ricerca.' : 'Nessun paziente registrato.'}</p>`; return; }
+    el.innerHTML = `<div class="tbl-wrap"><table><thead><tr><th>Cognome</th><th>Nome</th><th>Data nascita</th><th>Studio</th><th>Lavorazioni</th><th></th></tr></thead><tbody>
+      ${righe.map(p => `<tr><td>${escH(p.cognome)}</td><td>${escH(p.nome)}</td><td>${p.data_nascita || '—'}</td><td>${escH(p.studio || '—')}</td><td>${p.lavorazioni}</td>
+        <td><button class="btn danger" data-elimina-paziente="${p.id}" data-nome="${escH(p.cognome + ' ' + p.nome)}" style="font-size:12px;padding:4px 9px;">Elimina</button></td></tr>`).join('')}
+    </tbody></table></div>`;
+    el.querySelectorAll('[data-elimina-paziente]').forEach(btn => {
+      btn.onclick = () => apriModaleEliminaPaziente(btn.dataset.eliminaPaziente, btn.dataset.nome, () => renderPazientiAdmin());
+    });
+  };
+  document.getElementById('pa-cerca').oninput = disegna;
+  disegna();
 }
 
 /* ---------- ARCHIVIO (Laboratorio e Studio) — pratiche consegnate ---------- */
