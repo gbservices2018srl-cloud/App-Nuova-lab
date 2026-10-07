@@ -109,6 +109,10 @@
     <div class="field"><label>Password</label><input type="password" id="password"></div>
     <button class="btn block" id="btn-login">Accedi</button>
     <div class="msg" id="login-msg"></div>
+    <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--line);text-align:center;">
+      <a class="btn secondary block" id="btn-sso" href="https://appgestione.it/sso/laboratorio" style="display:block;text-decoration:none;">Entra con l'accesso To Smile</a>
+      <div style="font-size:12px;color:var(--muted);margin-top:6px;">Per chi fa parte del gruppo: stessa email e password di appgestione.it</div>
+    </div>
     <div style="text-align:center;margin-top:12px;"><a href="#" id="link-password-dimenticata" style="font-size:12.5px;color:var(--muted);">Password dimenticata?</a></div>
 
     <div id="recupero-box" style="display:none;margin-top:16px;padding-top:16px;border-top:1px solid var(--line);">
@@ -156,6 +160,12 @@ if(!window.NUOVALAB_CONFIG || window.NUOVALAB_CONFIG.SUPABASE_URL.includes('xxxx
   document.getElementById('login-msg').className = 'msg error';
   document.getElementById('login-msg').textContent = 'Config mancante: copia config.example.js in config.js e inserisci i tuoi dati Supabase.';
 }
+// Accesso unico To Smile (appgestione.it): il riquadro passa da appgestione.it/sso/laboratorio e torna qui
+// con un codice monouso (#sso=...) che scambiamo con la sessione Supabase. Lo togliamo subito dall'indirizzo.
+const SSO_HOME = 'https://appgestione.it';
+const SSO_INGRESSO = SSO_HOME + '/sso/laboratorio';
+const __ssoHash = new URLSearchParams(location.hash.slice(1));
+if (/(^|&)sso/.test(location.hash.slice(1))) history.replaceState(null, '', location.pathname + location.search);
 const sb = supabase.createClient(window.NUOVALAB_CONFIG.SUPABASE_URL, window.NUOVALAB_CONFIG.SUPABASE_ANON_KEY);
 
 function escH(v){return String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
@@ -179,6 +189,8 @@ document.getElementById('btn-logout').addEventListener('click', async ()=>{
   if(__novita.timer){ clearInterval(__novita.timer); __novita.timer = null; } __novita.profilo = null;
   document.getElementById('banner-novita').style.display = 'none';
   await sb.auth.signOut();
+  let daSso = false; try{ daSso = localStorage.getItem('nl_sso') === '1'; localStorage.removeItem('nl_sso'); }catch(e){}
+  if(daSso){ location.href = SSO_HOME; return; }
   document.getElementById('app-screen').style.display = 'none';
   document.getElementById('login-screen').style.display = 'flex';
 });
@@ -1400,11 +1412,20 @@ async function renderDashboardLavorazioni(profilo){
   caricaLavorazioniLab(profilo);
 }
 
+// Data e ora in cui lo studio ha inviato la prescrizione (creazione della pratica), ora italiana
+function dataInvioHtml(ts){
+  if(!ts) return '—';
+  const d = new Date(ts);
+  const giorno = d.toLocaleDateString('it-IT', { timeZone:'Europe/Rome', day:'2-digit', month:'2-digit', year:'numeric' });
+  const ora = d.toLocaleTimeString('it-IT', { timeZone:'Europe/Rome', hour:'2-digit', minute:'2-digit' });
+  return `${giorno}<div style="font-size:11px;color:var(--muted);">ore ${ora}</div>`;
+}
+
 async function caricaLavorazioniLab(profilo){
   const el = document.getElementById('lista-lavorazioni-lab');
   const { data: odontotecniciDb } = await sb.from('odontotecnici').select('nome').eq('laboratorio_id', profilo.laboratorio_id).order('nome');
   const { data, error } = await sb.from('lavorazioni')
-    .select('id, studio_id, medico_id, medici(nome), tipo_macro, tipo_micro, colore, data_consegna_richiesta, data_consegna_confermata, consegna_stato, stato_lab, odontotecnico, studi(nome), materiali_lavorazione(materiale, lotto), segnalazioni(tipo, dettaglio, created_at), allegati(id, nome_file, storage_path, scaricato_il)')
+    .select('id, created_at, studio_id, medico_id, medici(nome), tipo_macro, tipo_micro, colore, data_consegna_richiesta, data_consegna_confermata, consegna_stato, stato_lab, odontotecnico, studi(nome), materiali_lavorazione(materiale, lotto), segnalazioni(tipo, dettaglio, created_at), allegati(id, nome_file, storage_path, scaricato_il)')
     .eq('laboratorio_id', profilo.laboratorio_id)
     .is('stato_studio', null)
     .order('data_consegna_richiesta', { ascending: true });
@@ -1412,7 +1433,7 @@ async function caricaLavorazioniLab(profilo){
   if(!data || data.length === 0){ el.innerHTML = `<p class="empty">Nessuna lavorazione in corso.</p>`; return; }
 
   el.innerHTML = `
-    <table><thead><tr><th>ID pratica</th><th>Studio</th><th>Lavoro</th><th>Colore</th><th>Consegna</th><th>Allegati</th><th>Segnalazione</th><th>Stato</th><th>Odontotecnico</th><th>Materiali</th><th>Documenti</th></tr></thead><tbody>
+    <table><thead><tr><th>ID pratica</th><th>Inviato il</th><th>Studio</th><th>Lavoro</th><th>Colore</th><th>Consegna</th><th>Allegati</th><th>Segnalazione</th><th>Stato</th><th>Odontotecnico</th><th>Materiali</th><th>Documenti</th></tr></thead><tbody>
       ${data.map(j => {
         const ultimaSeg = (j.segnalazioni && j.segnalazioni.length) ? j.segnalazioni[j.segnalazioni.length-1] : null;
         let cellaConsegna;
@@ -1424,6 +1445,7 @@ async function caricaLavorazioniLab(profilo){
         return `
         <tr class="${j.stato_lab==='in_consegna' ? 'riga-verde' : ((j.stato_lab==='da_rifare' || j.stato_lab==='in_ritardo' || ultimaSeg) ? 'riga-rossa' : '')}" data-riga-lav="${j.id}" data-ha-seg="${ultimaSeg ? '1' : ''}">
           <td>${j.id}</td>
+          <td style="white-space:nowrap;">${dataInvioHtml(j.created_at)}</td>
           <td>${j.studi?.nome || '—'}
             <div style="margin-top:4px;white-space:nowrap;">
               <button class="btn secondary" data-chat-medico="${j.id}" style="font-size:11px;padding:3px 7px;" title="Scrivi al medico prescrittore">💬 ${escH(j.medici?.nome || 'Medico')}</button>
@@ -2758,8 +2780,21 @@ function apriModaleResetRapido(email){
   };
 }
 
-/* ---------- SE GIÀ LOGGATO, RIPRENDI LA SESSIONE ---------- */
-avviaApp();
+/* ---------- SE GIÀ LOGGATO, RIPRENDI LA SESSIONE (o entra con l'accesso unico) ---------- */
+(async () => {
+  const codice = __ssoHash.get('sso');
+  if(codice){
+    try{ await sb.auth.signOut({ scope: 'local' }); }catch(e){}
+    const { error } = await sb.auth.verifyOtp({ token_hash: codice, type: 'magiclink' });
+    if(error) mostraMsg('login-msg', 'Accesso To Smile non riuscito: riprova dal riquadro su appgestione.it.', 'error');
+    else { try{ localStorage.setItem('nl_sso', '1'); }catch(e){} window.__cambioForzatoFatto = true; }
+  } else if(__ssoHash.get('sso_noprofilo')){
+    mostraMsg('login-msg', `Il tuo accesso To Smile funziona, ma in Nuovalab non hai ancora un profilo per ${__ssoHash.get('sso_noprofilo')}. Chiedi all'Admin Nuovalab di crearti l'accesso con questa email.`, 'error');
+  } else if(__ssoHash.get('sso_errore')){
+    mostraMsg('login-msg', 'Accesso To Smile non riuscito: riprova dal riquadro su appgestione.it.', 'error');
+  }
+  avviaApp();
+})();
 </script>
 <div id="print-area"></div>
 </body>
