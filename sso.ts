@@ -5,7 +5,8 @@
 //    che l'app scambia con la sessione (verifyOtp). Nessuna email viene inviata.
 // Con un biglietto "revoke" (persona disattivata o senza più accesso) blocca l'utente.
 // Con "catalog" restituisce laboratori, studi e medici (per scegliere il livello nel pannello accessi).
-// Con "sync" aggiorna subito il profilo di chi è già entrato, dopo un cambio di livello.
+// Con "sync" (persona appena approvata, o permessi/dati cambiati) crea o aggiorna subito utente e profilo,
+// senza aspettare il primo ingresso. "Nuovo medico" crea anche il medico nello studio scelto, con i dati dell'albo.
 // Il livello (ADMIN, LABORATORIO, STUDIO, MEDICO + quale) lo decide il pannello accessi: il profilo qui viene creato
 // o aggiornato da solo, quindi nessuno deve avere una password di Nuovalab.
 import { createClient } from "npm:@supabase/supabase-js@2";
@@ -22,27 +23,59 @@ const back = (hash: string) => new Response(null, { status: 302, headers: { Loca
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 
 type Ticket = { purpose: "login" | "revoke" | "catalog" | "sync"; email: string; firstName?: string; lastName?: string;
-  role?: "user" | "admin"; livello?: string | null; ente?: string | null };
+  role?: "user" | "admin"; livello?: string | null; ente?: string | null; oldEmail?: string | null;
+  cf?: string | null; alboProvincia?: string | null; alboNumero?: string | null };
+type Esito = { ok: boolean; ente?: string; enteNome?: string; motivo?: string };
 const LIVELLI = ["ADMIN", "LABORATORIO", "STUDIO", "MEDICO"];
 
+// "Nuovo medico" nello studio scelto: lo crea con nome, email e albo della persona (o riusa quello con la stessa email)
+async function medicoNuovo(studioId: string, t: Ticket, email: string): Promise<{ id?: string; nome?: string; motivo?: string }> {
+  const { data: st } = await admin.from("studi").select("id, nome").eq("id", studioId).maybeSingle();
+  if (!st) return { motivo: "studio non trovato" };
+  const { data: c } = await admin.from("medici").select("id, nome").eq("studio_id", studioId).ilike("email", email).maybeSingle();
+  if (c) return { id: c.id, nome: c.nome };
+  const prov = String(t.alboProvincia || "").toUpperCase(), num = String(t.alboNumero || "");
+  if (!/^[A-Z]{2}$/.test(prov) || !num) return { motivo: "mancano provincia e numero d'albo" };
+  const nome = `${t.firstName || ""} ${t.lastName || ""}`.trim() || email;
+  const { data, error } = await admin.from("medici").insert({ studio_id: studioId, nome, email, provincia_albo: prov, numero_albo: num, attivo: true })
+    .select("id, nome").single();
+  if (error || !data) return { motivo: error?.message || "medico non creato" };
+  return { id: data.id, nome: `${data.nome} · ${st.nome}` };
+}
+
 // Profilo secondo il livello scelto nel pannello accessi (crea o aggiorna)
-async function applicaLivello(id: string, t: Ticket, login: boolean): Promise<boolean> {
+async function applicaLivello(id: string, t: Ticket, login: boolean, email: string): Promise<Esito> {
   const L = String(t.livello || "");
-  if (!LIVELLI.includes(L)) return false;
+  if (!LIVELLI.includes(L)) return { ok: false, motivo: "livello sconosciuto" };
   const row: Record<string, unknown> = { ruolo: L, laboratorio_id: null, studio_id: null, medico_id: null, attivo: true };
   const tab = { LABORATORIO: "laboratori", STUDIO: "studi", MEDICO: "medici" }[L as "LABORATORIO" | "STUDIO" | "MEDICO"];
+  const esito: Esito = { ok: true };
   if (tab) {
-    if (!t.ente) return false;
-    const { data } = await admin.from(tab).select("id").eq("id", t.ente).maybeSingle();
-    if (!data) return false;
-    row[{ laboratori: "laboratorio_id", studi: "studio_id", medici: "medico_id" }[tab]!] = t.ente;
+    let ente = String(t.ente || "");
+    if (!ente) return { ok: false, motivo: "manca la scelta" };
+    if (L === "MEDICO" && ente.startsWith("nuovo:")) {
+      const m = await medicoNuovo(ente.slice(6), t, email);
+      if (!m.id) return { ok: false, motivo: m.motivo };
+      ente = m.id; esito.ente = m.id; esito.enteNome = m.nome;
+    } else {
+      const { data } = await admin.from(tab).select("id").eq("id", ente).maybeSingle();
+      if (!data) return { ok: false, motivo: "non trovato in Nuovalab" };
+    }
+    row[{ laboratori: "laboratorio_id", studi: "studio_id", medici: "medico_id" }[tab]!] = ente;
   }
   if (login) row.deve_cambiare_password = false; // entra con l'accesso To Smile: nessuna password da cambiare qui
   const { data: p } = await admin.from("profili").select("id").eq("id", id).maybeSingle();
   const { error } = p ? await admin.from("profili").update(row).eq("id", id)
     : await admin.from("profili").insert({ id, ...row, deve_cambiare_password: false });
-  if (error) console.error("profilo", error.message);
-  return !error;
+  if (error) { console.error("profilo", error.message); return { ok: false, motivo: error.message }; }
+  return esito;
+}
+
+// Utente Supabase per questa email (lo crea se non c'è) e sbloccato
+async function utente(email: string, uid: string | null): Promise<string | null> {
+  if (uid) { await admin.auth.admin.updateUserById(uid, { ban_duration: "none" }); return uid; }
+  const { data, error } = await admin.auth.admin.createUser({ email, email_confirm: true });
+  return error || !data.user ? null : data.user.id;
 }
 
 async function catalogo() {
@@ -86,11 +119,17 @@ Deno.serve(async (req) => {
 
   if (t.purpose === "catalog") return json({ enti: await catalogo() });
 
-  const { data: uid } = await admin.rpc("sso_user_id", { p_email: email });
+  let { data: uid } = await admin.rpc("sso_user_id", { p_email: email });
+  if (!uid && t.oldEmail && t.purpose !== "revoke") { // email cambiata nel pannello: stesso utente, nuova email
+    const { data: vecchio } = await admin.rpc("sso_user_id", { p_email: String(t.oldEmail).toLowerCase() });
+    if (vecchio) { await admin.auth.admin.updateUserById(vecchio as string, { email, email_confirm: true }); uid = vecchio; }
+  }
 
-  if (t.purpose === "sync") { // cambio di livello: aggiorna il profilo solo se la persona esiste già qui
-    if (uid && t.livello) await applicaLivello(uid as string, t, false);
-    return json({ ok: true });
+  if (t.purpose === "sync") { // persona approvata o cambiata nel pannello: utente e profilo pronti subito
+    if (!t.livello) return json({ ok: true }); // vecchio permesso senza livello: il profilo si gestisce dentro Nuovalab
+    const id = await utente(email, (uid as string) || null);
+    if (!id) return json({ ok: false, motivo: "utente non creato" });
+    return json(await applicaLivello(id, t, false, email));
   }
 
   if (t.purpose === "revoke") {
@@ -98,17 +137,11 @@ Deno.serve(async (req) => {
     return json({ ok: true, blocked: !!uid });
   }
 
-  let id = uid as string | null;
-  if (!id) {
-    // Nessun accesso in questa app: lo creiamo se il pannello ha scelto il livello, o per chi è amministratore.
-    if (t.role !== "admin" && !t.livello) return back("sso_noprofilo=" + encodeURIComponent(email));
-    const { data, error } = await admin.auth.admin.createUser({ email, email_confirm: true });
-    if (error || !data.user) return back("sso_errore=utente");
-    id = data.user.id;
-  } else {
-    await admin.auth.admin.updateUserById(id, { ban_duration: "none" }); // eventuale blocco precedente
-  }
-  const ok = t.livello ? await applicaLivello(id, t, true) : await ensureProfile(id, t, email);
+  // Nessun accesso in questa app: lo creiamo se il pannello ha scelto il livello, o per chi è amministratore.
+  if (!uid && t.role !== "admin" && !t.livello) return back("sso_noprofilo=" + encodeURIComponent(email));
+  const id = await utente(email, (uid as string) || null);
+  if (!id) return back("sso_errore=utente");
+  const ok = t.livello ? (await applicaLivello(id, t, true, email)).ok : await ensureProfile(id, t, email);
   if (!ok) return back("sso_noprofilo=" + encodeURIComponent(email));
 
   const { data: link, error: linkError } = await admin.auth.admin.generateLink({ type: "magiclink", email });
