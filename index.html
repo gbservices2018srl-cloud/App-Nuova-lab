@@ -2242,9 +2242,10 @@ function apriModaleEliminaPaziente(id, nome, dopo){
   const conferma = async () => {
     if(!inp.value){ mostraMsg('ep-msg', 'Inserisci la password.', 'error'); return; }
     const btn = document.getElementById('ep-conferma'); btn.disabled = true;
-    const { error } = await sb.rpc('elimina_paziente', { p_id: id, p_password: inp.value });
+    const { data: esito, error } = await sb.rpc('elimina_paziente', { p_id: id, p_password: inp.value });
     btn.disabled = false;
-    if(error){ mostraMsg('ep-msg', error.message, 'error'); inp.select(); return; }
+    const problema = error ? error.message : esito; // la funzione restituisce il messaggio se non ha eliminato
+    if(problema){ mostraMsg('ep-msg', problema, 'error'); inp.select(); return; }
     wrap.remove();
     if(dopo) dopo();
   };
