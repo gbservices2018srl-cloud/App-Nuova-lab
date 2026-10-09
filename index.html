@@ -1422,6 +1422,16 @@ function dataInvioHtml(ts){
   return `${giorno}<div style="font-size:11px;color:var(--muted);">ore ${ora}</div>`;
 }
 
+// "Oggi", "Domani", "tra 3 giorni", "scaduta da 2 giorni" accanto alla data di consegna
+function quandoConsegna(d){
+  if(!d) return '';
+  const oggi = new Date().toLocaleDateString('sv-SE', { timeZone:'Europe/Rome' });
+  const gg = Math.round((Date.parse(d + 'T12:00:00Z') - Date.parse(oggi + 'T12:00:00Z')) / 86400000);
+  const [txt, col] = gg < 0 ? [`scaduta da ${-gg} ${gg === -1 ? 'giorno' : 'giorni'}`, 'var(--red, #B3261E)'] : gg === 0 ? ['oggi', 'var(--red, #B3261E)']
+    : gg === 1 ? ['domani', '#77731A'] : [`tra ${gg} giorni`, 'var(--muted)'];
+  return `<div style="font-size:11px;font-weight:700;color:${col};">${txt}</div>`;
+}
+
 async function caricaLavorazioniLab(profilo){
   const el = document.getElementById('lista-lavorazioni-lab');
   const { data: odontotecniciDb } = await sb.from('odontotecnici').select('nome').eq('laboratorio_id', profilo.laboratorio_id).order('nome');
@@ -1432,16 +1442,20 @@ async function caricaLavorazioniLab(profilo){
     .order('data_consegna_richiesta', { ascending: true });
   if(error){ el.innerHTML = `<p class="empty">Errore: ${error.message}</p>`; return; }
   if(!data || data.length === 0){ el.innerHTML = `<p class="empty">Nessuna lavorazione in corso.</p>`; return; }
+  // dalla consegna più vicina alla più lontana: vale la data confermata (o riprogrammata), altrimenti quella richiesta
+  const dataConsegna = j => j.data_consegna_confermata || j.data_consegna_richiesta || '9999-12-31';
+  data.sort((a, b) => dataConsegna(a).localeCompare(dataConsegna(b)) || String(a.created_at).localeCompare(String(b.created_at)));
 
   el.innerHTML = `
+    <p style="font-size:13px;color:var(--muted);margin:0 0 8px;">In ordine di consegna: in alto le più vicine.</p>
     <table><thead><tr><th>ID pratica</th><th>Inviato il</th><th>Studio</th><th>Lavoro</th><th>Colore</th><th>Consegna</th><th>Allegati</th><th>Segnalazione</th><th>Stato</th><th>Odontotecnico</th><th>Materiali</th><th>Documenti</th></tr></thead><tbody>
       ${data.map(j => {
         const ultimaSeg = (j.segnalazioni && j.segnalazioni.length) ? j.segnalazioni[j.segnalazioni.length-1] : null;
         let cellaConsegna;
         if(j.consegna_stato === 'in_attesa'){
-          cellaConsegna = `Richiesta: ${j.data_consegna_richiesta}<br><button class="btn secondary" data-accetta-consegna="${j.id}">✓ Accetta</button> <button class="btn secondary" data-riprogramma="${j.id}">📅 Riprogramma</button>`;
+          cellaConsegna = `Richiesta: ${j.data_consegna_richiesta}${quandoConsegna(j.data_consegna_richiesta)}<br><button class="btn secondary" data-accetta-consegna="${j.id}">✓ Accetta</button> <button class="btn secondary" data-riprogramma="${j.id}">📅 Riprogramma</button>`;
         } else {
-          cellaConsegna = `${j.data_consegna_confermata || j.data_consegna_richiesta}${j.consegna_stato==='riprogrammata' ? `<div><span class="badge off"><span class="dot"></span>Riprogrammata</span></div>` : ''}<br><button class="btn secondary" data-riprogramma="${j.id}" style="margin-top:4px;">📅 Riprogramma</button>`;
+          cellaConsegna = `${j.data_consegna_confermata || j.data_consegna_richiesta}${quandoConsegna(j.data_consegna_confermata || j.data_consegna_richiesta)}${j.consegna_stato==='riprogrammata' ? `<div><span class="badge off"><span class="dot"></span>Riprogrammata</span></div>` : ''}<br><button class="btn secondary" data-riprogramma="${j.id}" style="margin-top:4px;">📅 Riprogramma</button>`;
         }
         return `
         <tr class="${j.stato_lab==='in_consegna' ? 'riga-verde' : ((j.stato_lab==='da_rifare' || j.stato_lab==='in_ritardo' || ultimaSeg) ? 'riga-rossa' : '')}" data-riga-lav="${j.id}" data-ha-seg="${ultimaSeg ? '1' : ''}">
