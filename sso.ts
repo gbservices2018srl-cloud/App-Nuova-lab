@@ -22,9 +22,36 @@ const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE
 const back = (hash: string) => new Response(null, { status: 302, headers: { Location: APP_URL + "#" + hash, "Cache-Control": "no-store" } });
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 
-type Ticket = { purpose: "login" | "revoke" | "catalog" | "sync"; email: string; firstName?: string; lastName?: string;
+type Ticket = { purpose: "login" | "revoke" | "catalog" | "sync" | "sedi"; sedi?: Sede[]; email: string; firstName?: string; lastName?: string;
   role?: "user" | "admin"; livello?: string | null; ente?: string | null; oldEmail?: string | null; ssoId?: string | null;
   cf?: string | null; alboProvincia?: string | null; alboNumero?: string | null };
+type Sede = { id: string; nome: string; sigla: string; email: string; indirizzo: string; societa: string; riuniti: number; attiva: boolean };
+const normSede = (s: unknown) => String(s || "").toLowerCase().replace(/to\s*smile|studio|sede|ambulatorio/g, "").replace(/[^a-z0-9]/g, "");
+const spiega = (m: string) => /duplicate|unique/i.test(m) ? "sigla o email già usate da un altro studio" : m;
+// Sedi del gruppo dal pannello accessi → studi di Nuovalab (nome, sigla, email, attivo). Gli studi esterni restano come sono.
+async function copiaSedi(sedi: Sede[]): Promise<string[]> {
+  const avvisi: string[] = [];
+  const { data } = await admin.from("studi").select("id, nome, sigla, email, central_id");
+  // deno-lint-ignore no-explicit-any
+  const lista: any[] = data || [];
+  for (const x of sedi) {
+    const s = lista.find((r) => r.central_id === x.id) || lista.find((r) => !r.central_id && (
+      String(r.sigla || "").trim().toUpperCase() === x.sigla.toUpperCase() ||
+      (x.email && String(r.email || "").toLowerCase() === x.email.toLowerCase()) || normSede(r.nome) === normSede(x.nome)));
+    if (!s && !x.attiva) continue;
+    const row: Record<string, unknown> = { nome: x.nome, sigla: x.sigla, attivo: x.attiva, central_id: x.id };
+    if (x.email) row.email = x.email;
+    if (s) {
+      const { error } = await admin.from("studi").update(row).eq("id", s.id);
+      if (error) avvisi.push(`${x.nome}: ${spiega(error.message)}`); else s.central_id = x.id;
+    } else if (!x.email) avvisi.push(`${x.nome}: manca l'email della sede, in Nuovalab non è stata creata.`);
+    else {
+      const { error } = await admin.from("studi").insert(row);
+      if (error) avvisi.push(`${x.nome}: ${spiega(error.message)}`);
+    }
+  }
+  return avvisi;
+}
 type Esito = { ok: boolean; ente?: string; enteNome?: string; motivo?: string };
 const LIVELLI = ["ADMIN", "LABORATORIO", "STUDIO", "MEDICO"];
 
@@ -86,12 +113,12 @@ async function utente(email: string, uid: string | null, ssoId?: string | null):
 async function catalogo() {
   const [l, s, m] = await Promise.all([
     admin.from("laboratori").select("id, nome").eq("attivo", true).order("nome"),
-    admin.from("studi").select("id, nome").eq("attivo", true).order("nome"),
+    admin.from("studi").select("id, nome, sigla, email").eq("attivo", true).order("nome"),
     admin.from("medici").select("id, nome, studi(nome)").eq("attivo", true).order("nome"),
   ]);
   return {
     laboratori: (l.data || []).map((x) => ({ id: x.id, nome: x.nome })),
-    studi: (s.data || []).map((x) => ({ id: x.id, nome: x.nome })),
+    studi: (s.data || []).map((x) => ({ id: x.id, nome: x.nome, sigla: String(x.sigla || "").trim(), email: x.email })),
     // deno-lint-ignore no-explicit-any
     medici: (m.data || []).map((x: any) => ({ id: x.id, nome: x.nome, info: x.studi?.nome || "" })),
   };
@@ -123,6 +150,7 @@ Deno.serve(async (req) => {
   if (!email) return isPost ? json({ error: "email mancante" }, 400) : back("sso_errore=email");
 
   if (t.purpose === "catalog") return json({ enti: await catalogo() });
+  if (t.purpose === "sedi") return json({ ok: true, avvisi: await copiaSedi(t.sedi || []) });
 
   // Chi è: prima per id dell'accesso unico (non cambia mai, nemmeno se cambia l'email), poi per email, poi per la vecchia email
   let uid: string | null = null;
