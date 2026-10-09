@@ -148,7 +148,7 @@
   <div class="main" style="flex:1;">
     <div class="topbar">
       <div><button class="hamburger" id="btn-menu" aria-label="Menu">☰</button><span class="brand">Nuovalab</span></div>
-      <div><span id="chi-sono" style="font-size:13px;color:var(--muted);margin-right:14px;"></span><button class="btn secondary" id="btn-logout">Esci</button></div>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end;"><span id="studio-switch"></span><span id="chi-sono" style="font-size:13px;color:var(--muted);margin-right:6px;"></span><button class="btn secondary" id="btn-logout">Esci</button></div>
     </div>
     <div id="banner-novita" style="display:none;"></div>
     <div class="content" id="content"></div>
@@ -232,6 +232,25 @@ sb.auth.onAuthStateChange((event) => {
 });
 
 /* ---------- AVVIO APP DOPO LOGIN ---------- */
+// Chi lavora in più studi (assegnati dal pannello accessi) sceglie qui lo studio su cui lavorare
+async function mostraCambioStudio(profilo){
+  const box = document.getElementById('studio-switch');
+  box.innerHTML = '';
+  if(profilo.ruolo !== 'STUDIO' && profilo.ruolo !== 'MEDICO') return;
+  const { data, error } = await sb.rpc('miei_studi');
+  if(error || !data || data.length < 2) return;
+  box.innerHTML = `<label style="font-size:13px;color:var(--muted);display:flex;align-items:center;gap:6px;">Studio
+    <select id="sel-studio" style="font-weight:700;min-height:34px;padding:4px 8px;border-radius:8px;border:1px solid var(--line);">
+      ${data.map(x => `<option value="${x.studio_id}" ${x.attuale ? 'selected' : ''}>${String(x.nome).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}</option>`).join('')}
+    </select></label>`;
+  document.getElementById('sel-studio').onchange = async e => {
+    e.target.disabled = true;
+    const { error: err } = await sb.rpc('cambia_studio', { p_studio: e.target.value });
+    if(err){ alert('Non è stato possibile cambiare studio: ' + err.message); e.target.disabled = false; return; }
+    location.reload();
+  };
+}
+
 async function avviaApp(){
   const { data: { session } } = await sb.auth.getSession();
   if(!session) return;
@@ -253,6 +272,7 @@ async function avviaApp(){
   document.getElementById('app-screen').style.display = 'flex';
   document.getElementById('chi-sono').textContent = session.user.email;
   document.getElementById('ruolo-corrente').textContent = profilo.ruolo;
+  mostraCambioStudio(profilo);
 
   const NAV_PER_RUOLO = {
     ADMIN: [

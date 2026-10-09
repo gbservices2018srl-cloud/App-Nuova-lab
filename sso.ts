@@ -23,7 +23,7 @@ const back = (hash: string) => new Response(null, { status: 302, headers: { Loca
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 
 type Ticket = { purpose: "login" | "revoke" | "catalog" | "sync" | "sedi"; sedi?: Sede[]; email: string; firstName?: string; lastName?: string;
-  role?: "user" | "admin"; livello?: string | null; ente?: string | null; oldEmail?: string | null; ssoId?: string | null;
+  role?: "user" | "admin"; livello?: string | null; ente?: string | null; enti?: string[]; oldEmail?: string | null; ssoId?: string | null;
   cf?: string | null; alboProvincia?: string | null; alboNumero?: string | null };
 type Sede = { id: string; nome: string; sigla: string; email: string; indirizzo: string; societa: string; riuniti: number; attiva: boolean };
 const normSede = (s: unknown) => String(s || "").toLowerCase().replace(/to\s*smile|studio|sede|ambulatorio/g, "").replace(/[^a-z0-9]/g, "");
@@ -52,7 +52,7 @@ async function copiaSedi(sedi: Sede[]): Promise<string[]> {
   }
   return avvisi;
 }
-type Esito = { ok: boolean; ente?: string; enteNome?: string; motivo?: string };
+type Esito = { ok: boolean; ente?: string; enteNome?: string; motivo?: string; creati?: { da: string; id: string; nome?: string }[] };
 const LIVELLI = ["ADMIN", "LABORATORIO", "STUDIO", "MEDICO"];
 
 // "Nuovo medico" nello studio scelto: lo crea con nome, email e albo della persona (o riusa quello con la stessa email)
@@ -70,31 +70,56 @@ async function medicoNuovo(studioId: string, t: Ticket, email: string): Promise<
   return { id: data.id, nome: `${data.nome} · ${st.nome}` };
 }
 
-// Profilo secondo il livello scelto nel pannello accessi (crea o aggiorna)
+// Profilo secondo il livello scelto nel pannello accessi (crea o aggiorna).
+// Studio e medico possono avere più studi (t.enti): si salvano in profili_studi e nel profilo resta quello "attuale"
+// (la persona lo cambia dal menu in alto); se l'attuale non è più fra quelli assegnati, diventa il primo.
 async function applicaLivello(id: string, t: Ticket, login: boolean, email: string): Promise<Esito> {
   const L = String(t.livello || "");
   if (!LIVELLI.includes(L)) return { ok: false, motivo: "livello sconosciuto" };
   const row: Record<string, unknown> = { ruolo: L, laboratorio_id: null, studio_id: null, medico_id: null, attivo: true };
-  const tab = { LABORATORIO: "laboratori", STUDIO: "studi", MEDICO: "medici" }[L as "LABORATORIO" | "STUDIO" | "MEDICO"];
-  const esito: Esito = { ok: true };
-  if (tab) {
-    let ente = String(t.ente || "");
+  const esito: Esito = { ok: true, creati: [] };
+  const { data: p } = await admin.from("profili").select("id, studio_id, medico_id").eq("id", id).maybeSingle();
+  let studi: { studio_id: string; medico_id: string | null }[] = [];
+  if (L === "LABORATORIO") {
+    const ente = String(t.ente || "");
     if (!ente) return { ok: false, motivo: "manca la scelta" };
-    if (L === "MEDICO" && ente.startsWith("nuovo:")) {
-      const m = await medicoNuovo(ente.slice(6), t, email);
-      if (!m.id) return { ok: false, motivo: m.motivo };
-      ente = m.id; esito.ente = m.id; esito.enteNome = m.nome;
-    } else {
-      const { data } = await admin.from(tab).select("id").eq("id", ente).maybeSingle();
-      if (!data) return { ok: false, motivo: "non trovato in Nuovalab" };
+    const { data } = await admin.from("laboratori").select("id").eq("id", ente).maybeSingle();
+    if (!data) return { ok: false, motivo: "laboratorio non trovato in Nuovalab" };
+    row.laboratorio_id = ente;
+  } else if (L === "STUDIO" || L === "MEDICO") {
+    const ids = (t.enti && t.enti.length ? t.enti : [t.ente]).map((x) => String(x || "")).filter(Boolean);
+    if (!ids.length) return { ok: false, motivo: "manca la scelta" };
+    for (const x of ids) {
+      if (L === "STUDIO") {
+        const { data } = await admin.from("studi").select("id").eq("id", x).maybeSingle();
+        if (!data) return { ok: false, motivo: "studio non trovato in Nuovalab" };
+        studi.push({ studio_id: x, medico_id: null });
+      } else {
+        let mid = x;
+        if (x.startsWith("nuovo:")) { // nuovo medico in quello studio, con i dati dell'albo
+          const m = await medicoNuovo(x.slice(6), t, email);
+          if (!m.id) return { ok: false, motivo: m.motivo };
+          mid = m.id; esito.creati!.push({ da: x, id: m.id, nome: m.nome });
+        }
+        const { data } = await admin.from("medici").select("id, studio_id").eq("id", mid).maybeSingle();
+        if (!data) return { ok: false, motivo: "medico non trovato in Nuovalab" };
+        studi.push({ studio_id: data.studio_id, medico_id: data.id });
+      }
     }
-    row[{ laboratori: "laboratorio_id", studi: "studio_id", medici: "medico_id" }[tab]!] = ente;
+    studi = studi.filter((x, i) => studi.findIndex((y) => y.studio_id === x.studio_id) === i); // uno per studio
+    if (L === "STUDIO") row.studio_id = studi.some((x) => x.studio_id === p?.studio_id) ? p!.studio_id : studi[0].studio_id;
+    else row.medico_id = studi.some((x) => x.medico_id === p?.medico_id) ? p!.medico_id : studi[0].medico_id;
   }
   if (login) row.deve_cambiare_password = false; // entra con l'accesso To Smile: nessuna password da cambiare qui
-  const { data: p } = await admin.from("profili").select("id").eq("id", id).maybeSingle();
   const { error } = p ? await admin.from("profili").update(row).eq("id", id)
     : await admin.from("profili").insert({ id, ...row, deve_cambiare_password: false });
   if (error) { console.error("profilo", error.message); return { ok: false, motivo: error.message }; }
+  await admin.from("profili_studi").delete().eq("profilo_id", id);
+  if (studi.length) {
+    const { error: e2 } = await admin.from("profili_studi").insert(studi.map((x) => ({ profilo_id: id, ...x })));
+    if (e2) console.error("profili_studi", e2.message);
+  }
+  if (esito.creati!.length) { esito.ente = esito.creati![0].id; esito.enteNome = esito.creati![0].nome; }
   return esito;
 }
 
