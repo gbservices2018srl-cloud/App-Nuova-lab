@@ -23,7 +23,7 @@ const back = (hash: string) => new Response(null, { status: 302, headers: { Loca
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 
 type Ticket = { purpose: "login" | "revoke" | "catalog" | "sync"; email: string; firstName?: string; lastName?: string;
-  role?: "user" | "admin"; livello?: string | null; ente?: string | null; oldEmail?: string | null;
+  role?: "user" | "admin"; livello?: string | null; ente?: string | null; oldEmail?: string | null; ssoId?: string | null;
   cf?: string | null; alboProvincia?: string | null; alboNumero?: string | null };
 type Esito = { ok: boolean; ente?: string; enteNome?: string; motivo?: string };
 const LIVELLI = ["ADMIN", "LABORATORIO", "STUDIO", "MEDICO"];
@@ -71,10 +71,15 @@ async function applicaLivello(id: string, t: Ticket, login: boolean, email: stri
   return esito;
 }
 
-// Utente Supabase per questa email (lo crea se non c'è) e sbloccato
-async function utente(email: string, uid: string | null): Promise<string | null> {
-  if (uid) { await admin.auth.admin.updateUserById(uid, { ban_duration: "none" }); return uid; }
-  const { data, error } = await admin.auth.admin.createUser({ email, email_confirm: true });
+// Utente Supabase della persona (lo crea se non c'è), sbloccato, con l'email attuale e collegato al suo id dell'accesso unico
+async function utente(email: string, uid: string | null, ssoId?: string | null): Promise<string | null> {
+  const meta = ssoId ? { app_metadata: { central_id: ssoId } } : {};
+  if (uid) {
+    const { error } = await admin.auth.admin.updateUserById(uid, { ban_duration: "none", email, email_confirm: true, ...meta });
+    if (error) await admin.auth.admin.updateUserById(uid, { ban_duration: "none", ...meta }); // email già usata da un altro utente: resta la vecchia
+    return uid;
+  }
+  const { data, error } = await admin.auth.admin.createUser({ email, email_confirm: true, ...meta });
   return error || !data.user ? null : data.user.id;
 }
 
@@ -119,15 +124,15 @@ Deno.serve(async (req) => {
 
   if (t.purpose === "catalog") return json({ enti: await catalogo() });
 
-  let { data: uid } = await admin.rpc("sso_user_id", { p_email: email });
-  if (!uid && t.oldEmail && t.purpose !== "revoke") { // email cambiata nel pannello: stesso utente, nuova email
-    const { data: vecchio } = await admin.rpc("sso_user_id", { p_email: String(t.oldEmail).toLowerCase() });
-    if (vecchio) { await admin.auth.admin.updateUserById(vecchio as string, { email, email_confirm: true }); uid = vecchio; }
-  }
+  // Chi è: prima per id dell'accesso unico (non cambia mai, nemmeno se cambia l'email), poi per email, poi per la vecchia email
+  let uid: string | null = null;
+  if (t.ssoId) uid = ((await admin.rpc("sso_user_by_central", { p_id: String(t.ssoId) })).data as string) || null;
+  if (!uid) uid = ((await admin.rpc("sso_user_id", { p_email: email })).data as string) || null;
+  if (!uid && t.oldEmail) uid = ((await admin.rpc("sso_user_id", { p_email: String(t.oldEmail).toLowerCase() })).data as string) || null;
 
   if (t.purpose === "sync") { // persona approvata o cambiata nel pannello: utente e profilo pronti subito
     if (!t.livello) return json({ ok: true }); // vecchio permesso senza livello: il profilo si gestisce dentro Nuovalab
-    const id = await utente(email, (uid as string) || null);
+    const id = await utente(email, uid, t.ssoId);
     if (!id) return json({ ok: false, motivo: "utente non creato" });
     return json(await applicaLivello(id, t, false, email));
   }
@@ -139,12 +144,14 @@ Deno.serve(async (req) => {
 
   // Nessun accesso in questa app: lo creiamo se il pannello ha scelto il livello, o per chi è amministratore.
   if (!uid && t.role !== "admin" && !t.livello) return back("sso_noprofilo=" + encodeURIComponent(email));
-  const id = await utente(email, (uid as string) || null);
+  const id = await utente(email, uid, t.ssoId);
   if (!id) return back("sso_errore=utente");
   const ok = t.livello ? (await applicaLivello(id, t, true, email)).ok : await ensureProfile(id, t, email);
   if (!ok) return back("sso_noprofilo=" + encodeURIComponent(email));
 
-  const { data: link, error: linkError } = await admin.auth.admin.generateLink({ type: "magiclink", email });
+  // il link d'accesso va all'email che l'utente ha davvero qui (se la nuova email era già di un altro utente, resta la vecchia)
+  const { data: au } = await admin.auth.admin.getUserById(id);
+  const { data: link, error: linkError } = await admin.auth.admin.generateLink({ type: "magiclink", email: au?.user?.email || email });
   if (linkError || !link?.properties?.hashed_token) return back("sso_errore=link");
   return back("sso=" + encodeURIComponent(link.properties.hashed_token));
 });
