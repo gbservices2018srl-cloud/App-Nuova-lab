@@ -1109,13 +1109,15 @@ async function renderMieiLavori(profilo){
 async function caricaMieiLavori(profilo){
   const el = document.getElementById('lista-miei-lavori');
   const { data, error } = await sb.from('lavorazioni')
-    .select('id, laboratorio_id, cognome_paziente, nome_paziente, tipo_macro, tipo_micro, colore, data_consegna_richiesta, data_consegna_confermata, consegna_stato, riprogrammazione_vista, motivo_riprogrammazione, stato_lab, stato_studio, medici(nome), laboratori(nome)')
+    .select('id, laboratorio_id, cognome_paziente, nome_paziente, tipo_macro, tipo_micro, colore, data_consegna_richiesta, data_consegna_confermata, consegna_stato, riprogrammazione_vista, motivo_riprogrammazione, stato_lab, stato_studio, motivo_rifiuto, rifiutato_il, rifiuto_visto, medici(nome), laboratori(nome)')
     .eq('studio_id', profilo.studio_id).order('created_at', { ascending: false });
   if(error){ el.innerHTML = `<p class="empty">Errore: ${error.message}</p>`; return; }
   if(!data || data.length === 0){ el.innerHTML = `<p class="empty">Nessun lavoro creato.</p>`; return; }
 
-  const STATO_LABEL = { '': 'Da iniziare', in_lavorazione: 'In lavorazione', in_ritardo: 'In ritardo', da_rifare: 'Da rifare', in_consegna: 'In consegna' };
+  const STATO_LABEL = { '': 'Da iniziare', in_lavorazione: 'In lavorazione', in_ritardo: 'In ritardo', da_rifare: 'Da rifare', in_consegna: 'In consegna', rifiutato: 'Rifiutato dal laboratorio' };
+  const rifiutiNuovi = data.filter(j => j.stato_lab === 'rifiutato' && !j.rifiuto_visto).length;
   el.innerHTML = `
+    ${rifiutiNuovi ? `<div style="background:#B3261E;color:#fff;border-radius:8px;padding:12px 16px;margin:0 0 14px;"><strong>⛔ ${rifiutiNuovi === 1 ? 'Un lavoro è stato rifiutato' : rifiutiNuovi + ' lavori sono stati rifiutati'} dal laboratorio.</strong> Leggi il motivo nella riga evidenziata e premi «OK, ho visto».</div>` : ''}
     <table><thead><tr><th>ID</th><th>Paziente</th><th>Medico</th><th>Laboratorio</th><th>Lavoro</th><th>Consegna</th><th>Stato</th><th>Azioni</th><th>Documenti</th><th>Chat</th></tr></thead><tbody>
       ${data.map(j => {
         let cellaConsegna;
@@ -1127,6 +1129,20 @@ async function caricaMieiLavori(profilo){
         } else {
           cellaConsegna = j.data_consegna_confermata || j.data_consegna_richiesta;
         }
+        if(j.stato_lab === 'rifiutato') return `<tr class="riga-rossa">
+        <td>${j.id}</td>
+        <td>${j.cognome_paziente} ${j.nome_paziente}</td>
+        <td>${j.medici?.nome || '—'}</td>
+        <td>${j.laboratori?.nome || '—'}</td>
+        <td>${j.tipo_macro} › ${j.tipo_micro} · ${j.colore}</td>
+        <td>${j.data_consegna_richiesta || '—'}</td>
+        <td><span class="badge" style="background:#B3261E;color:#fff;"><span class="dot"></span>Rifiutato dal laboratorio</span>
+          ${j.rifiutato_il ? `<div style="font-size:11px;color:var(--muted);">${new Date(j.rifiutato_il).toLocaleString('it-IT', { timeZone:'Europe/Rome', day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' })}</div>` : ''}
+          ${j.motivo_rifiuto ? `<div style="font-size:12px;white-space:normal;max-width:240px;"><strong>Motivo:</strong> ${escH(j.motivo_rifiuto)}</div>` : ''}</td>
+        <td>${j.rifiuto_visto ? '<span style="font-size:12px;color:var(--muted);">Visto</span>' : `<button class="btn secondary" data-rifiuto-visto="${j.id}">OK, ho visto</button>`}</td>
+        <td style="max-width:220px;">—</td>
+        <td><button class="btn secondary" data-chat-lavoro="${j.id}">💬 Chat</button></td>
+      </tr>`;
         return `<tr>
         <td>${j.id}</td>
         <td>${j.cognome_paziente} ${j.nome_paziente}</td>
@@ -1158,6 +1174,13 @@ async function caricaMieiLavori(profilo){
     btn.onclick = async () => {
       await sb.from('lavorazioni').update({ riprogrammazione_vista: true }).eq('id', btn.dataset.vista);
       caricaMieiLavori(profilo);
+    };
+  });
+  el.querySelectorAll('[data-rifiuto-visto]').forEach(btn => {
+    btn.onclick = async () => {
+      const { error } = await sb.from('lavorazioni').update({ rifiuto_visto: true }).eq('id', btn.dataset.rifiutoVisto);
+      if(error){ alert('Errore: ' + error.message); return; }
+      caricaMieiLavori(profilo); if(typeof controllaNovita === 'function') controllaNovita();
     };
   });
   el.querySelectorAll('[data-segnala]').forEach(btn => {
@@ -1204,6 +1227,35 @@ async function apriModaleSegnalazione(jobId, laboratorioId, onSalvato){
     if(e1){ alert('Errore: ' + e1.message); return; }
     const { error: e2 } = await sb.from('lavorazioni').update({ stato_lab: 'da_rifare' }).eq('id', jobId);
     if(e2){ alert('Errore: ' + e2.message); return; }
+    wrap.remove();
+    onSalvato();
+  };
+}
+
+
+// Il laboratorio rifiuta un lavoro: sparisce dalla sua dashboard, lo studio lo vede evidenziato con il motivo e riceve l'avviso.
+function apriModaleRifiuto(jobId, onSalvato){
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;z-index:999;';
+  wrap.innerHTML = `
+    <div class="box" style="width:400px;max-width:calc(100vw - 32px);">
+      <h1 style="font-size:16px;margin-bottom:4px;">Rifiuta il lavoro ${escH(jobId)}</h1>
+      <p style="font-size:12px;color:var(--muted);margin-top:0;">Il lavoro sparirà dalla tua dashboard. Lo studio lo vedrà come «Rifiutato dal laboratorio» con il motivo e riceverà un avviso.</p>
+      <div class="field"><label>Motivo (lo legge lo studio)</label><textarea id="rf-motivo" rows="3" maxlength="500" style="width:100%;border:1px solid var(--line);border-radius:6px;padding:10px;font-family:inherit;" placeholder="Es. impronta non leggibile, manca la prescrizione firmata…"></textarea></div>
+      <button class="btn danger block" id="rf-salva">Rifiuta lavoro</button>
+      <button class="btn secondary block" id="rf-annulla" style="margin-top:6px;">Annulla</button>
+    </div>`;
+  document.body.appendChild(wrap);
+  document.getElementById('rf-motivo').focus();
+  document.getElementById('rf-annulla').onclick = () => wrap.remove();
+  document.getElementById('rf-salva').onclick = async () => {
+    const motivo = document.getElementById('rf-motivo').value.trim();
+    if(motivo.length < 5){ alert('Scrivi il motivo del rifiuto: lo studio deve sapere cosa correggere.'); return; }
+    const b = document.getElementById('rf-salva'); b.disabled = true;
+    const { error } = await sb.from('lavorazioni').update({
+      stato_lab: 'rifiutato', motivo_rifiuto: motivo, rifiutato_il: new Date().toISOString(), rifiuto_visto: false
+    }).eq('id', jobId);
+    if(error){ b.disabled = false; alert('Errore: ' + error.message); return; }
     wrap.remove();
     onSalvato();
   };
@@ -1459,6 +1511,7 @@ async function caricaLavorazioniLab(profilo){
     .select('id, created_at, studio_id, medico_id, medici(nome), tipo_macro, tipo_micro, colore, data_consegna_richiesta, data_consegna_confermata, consegna_stato, stato_lab, odontotecnico, studi(nome), materiali_lavorazione(materiale, lotto), segnalazioni(tipo, dettaglio, created_at), allegati(id, nome_file, storage_path, scaricato_il)')
     .eq('laboratorio_id', profilo.laboratorio_id)
     .is('stato_studio', null)
+    .neq('stato_lab', 'rifiutato') // i lavori rifiutati spariscono dalla dashboard (lo studio li vede ancora)
     .order('data_consegna_richiesta', { ascending: true });
   if(error){ el.innerHTML = `<p class="empty">Errore: ${error.message}</p>`; return; }
   if(!data || data.length === 0){ el.innerHTML = `<p class="empty">Nessuna lavorazione in corso.</p>`; return; }
@@ -1497,7 +1550,8 @@ async function caricaLavorazioniLab(profilo){
           <td style="max-width:180px;">${ultimaSeg ? `<strong style="font-size:12px;">${ultimaSeg.tipo}</strong><div style="font-size:11px;color:var(--muted);white-space:normal;">${ultimaSeg.dettaglio}</div>` : '—'}</td>
           <td><select class="inline-text" data-set-stato="${j.id}">
               ${Object.entries(STATO_LAB_LABEL).map(([k,l]) => `<option value="${k}" ${j.stato_lab===k?'selected':''}>${l}</option>`).join('')}
-            </select></td>
+            </select>
+            <div><button class="btn danger" data-rifiuta-lavoro="${j.id}" style="margin-top:4px;font-size:11px;padding:3px 8px;">✕ Rifiuta lavoro</button></div></td>
           <td><select class="inline-text" data-set-odt="${j.id}">
               <option value="">—</option>
               ${(odontotecniciDb||[]).map(o => `<option ${j.odontotecnico===o.nome?'selected':''}>${o.nome}</option>`).join('')}
@@ -1542,6 +1596,9 @@ async function caricaLavorazioniLab(profilo){
   });
   el.querySelectorAll('[data-riprogramma]').forEach(btn => {
     btn.onclick = () => apriModaleRiprogramma(btn.dataset.riprogramma, () => caricaLavorazioniLab(profilo));
+  });
+  el.querySelectorAll('[data-rifiuta-lavoro]').forEach(btn => {
+    btn.onclick = () => apriModaleRifiuto(btn.dataset.rifiutaLavoro, () => caricaLavorazioniLab(profilo));
   });
   el.querySelectorAll('[data-agg-materiale]').forEach(btn => {
     btn.onclick = () => apriModaleMateriale(btn.dataset.aggMateriale, profilo.laboratorio_id, () => caricaLavorazioniLab(profilo));
@@ -2408,7 +2465,7 @@ async function caricaLavoriMedico(profilo){
     .select('id, cognome_paziente, nome_paziente, tipo_macro, tipo_micro, colore, data_consegna_richiesta, stato_lab, stato_studio, firme(id)')
     .eq('medico_id', profilo.medico_id).order('created_at', { ascending: false });
   if(error){ el.innerHTML = `<p class="empty">Errore: ${error.message}</p>`; return; }
-  const STATO_LABEL = { '': 'Da iniziare', in_lavorazione: 'In lavorazione', in_ritardo: 'In ritardo', da_rifare: 'Da rifare', in_consegna: 'In consegna' };
+  const STATO_LABEL = { '': 'Da iniziare', in_lavorazione: 'In lavorazione', in_ritardo: 'In ritardo', da_rifare: 'Da rifare', in_consegna: 'In consegna', rifiutato: 'Rifiutato dal laboratorio' };
   const attivi = (data||[]).filter(j => !(j.stato_studio==='consegnato' && j.firme && j.firme.length>0));
   if(attivi.length === 0){ el.innerHTML = `<p class="empty">Nessuna prescrizione da mostrare.</p>`; return; }
   el.innerHTML = `
@@ -2630,7 +2687,7 @@ async function renderMessaggiMedico(profilo){
 
 
 /* ---------- AVVISI IN TEMPO QUASI REALE (messaggi non letti, richieste password) ---------- */
-let __novita = { timer: null, prec: { msg: null, reset: null }, profilo: null };
+let __novita = { timer: null, prec: { msg: null, reset: null, rif: null }, profilo: null };
 
 function suonoAvviso(){
   try{
@@ -2671,6 +2728,14 @@ async function controllaNovita(){
     const { count } = await sb.from('richieste_reset').select('id', { count: 'exact', head: true }).eq('evasa', false);
     reset = count || 0;
   }
+  let rif = 0; // lavori rifiutati dal laboratorio non ancora visti dallo studio
+  if(profilo.ruolo === 'STUDIO'){
+    const { count } = await sb.from('lavorazioni').select('id', { count: 'exact', head: true })
+      .eq('studio_id', profilo.studio_id).eq('stato_lab', 'rifiutato').eq('rifiuto_visto', false);
+    rif = count || 0;
+  }
+  const bl = document.querySelector('#sidebar-nav [data-nav-key="lavori"]');
+  if(bl) bl.innerHTML = rif > 0 ? `I miei lavori <span style="background:#B3261E;color:#fff;border-radius:10px;padding:1px 7px;font-size:11px;margin-left:6px;">${rif}</span>` : 'I miei lavori';
   // badge menu
   const bm = document.querySelector('#sidebar-nav [data-nav-key="messaggi"]');
   if(bm) bm.innerHTML = msg > 0 ? `Messaggi <span style="background:var(--block);color:#fff;border-radius:10px;padding:1px 7px;font-size:11px;margin-left:6px;">${msg}</span>` : 'Messaggi';
@@ -2681,6 +2746,7 @@ async function controllaNovita(){
   const banner = document.getElementById('banner-novita');
   const parti = [];
   if(msg > 0) parti.push(`<button data-vai="messaggi" style="all:unset;cursor:pointer;font-weight:700;text-decoration:underline;">✉ ${msg} messagg${msg===1?'io non letto':'i non letti'}</button>`);
+  if(rif > 0) parti.push(`<button data-vai="lavori" style="all:unset;cursor:pointer;font-weight:700;text-decoration:underline;">⛔ ${rif === 1 ? '1 lavoro rifiutato' : rif + ' lavori rifiutati'} dal laboratorio</button>`);
   if(reset > 0) parti.push(`<button data-vai="utenti" style="all:unset;cursor:pointer;font-weight:700;text-decoration:underline;">🔑 ${reset} richiesta/e di nuova password</button>`);
   if(parti.length){
     banner.style.cssText = 'display:block;background:var(--block);color:#fff;padding:11px 20px;font-size:14px;position:sticky;top:0;z-index:30;box-shadow:0 2px 6px rgba(0,0,0,.2);';
@@ -2689,12 +2755,15 @@ async function controllaNovita(){
   } else {
     banner.style.display = 'none'; banner.innerHTML = '';
   }
-  document.title = (msg + reset > 0 ? `(${msg + reset}) ` : '') + 'Nuovalab';
+  document.title = (msg + reset + rif > 0 ? `(${msg + reset + rif}) ` : '') + 'Nuovalab';
 
   // suono + notifica del browser solo quando il numero AUMENTA
   const cresciuti = [];
   if(__novita.prec.msg !== null && msg > __novita.prec.msg) cresciuti.push('Nuovo messaggio ricevuto');
   if(__novita.prec.reset !== null && reset > __novita.prec.reset) cresciuti.push('Nuova richiesta di reset password');
+  if(__novita.prec.rif !== null && rif > __novita.prec.rif) cresciuti.push('Un laboratorio ha rifiutato un lavoro');
+  // all'apertura dell'app avvisa subito se ci sono rifiuti non ancora visti
+  if(__novita.prec.rif === null && rif > 0){ suonoAvviso(); if('Notification' in window && Notification.permission === 'granted'){ try{ new Notification('Nuovalab', { body: rif === 1 ? 'Un lavoro è stato rifiutato dal laboratorio' : rif + ' lavori sono stati rifiutati dal laboratorio' }); }catch(e){} } }
   if(cresciuti.length){
     suonoAvviso();
     if('Notification' in window && Notification.permission === 'granted' && document.hidden){
@@ -2705,12 +2774,14 @@ async function controllaNovita(){
       renderDashboardLavorazioni(profilo);
     }
   }
-  __novita.prec.msg = msg; __novita.prec.reset = reset;
+  __novita.prec.msg = msg; __novita.prec.reset = reset; __novita.prec.rif = rif;
+  // se lo studio ha aperta la lista dei lavori e arriva un rifiuto, la aggiorna
+  if(cresciuti.length && profilo.ruolo === 'STUDIO' && document.querySelector('#lista-miei-lavori')) caricaMieiLavori(profilo);
 }
 
 function avviaControlloNovita(profilo){
   __novita.profilo = profilo;
-  __novita.prec = { msg: null, reset: null };
+  __novita.prec = { msg: null, reset: null, rif: null };
   if(__novita.timer) clearInterval(__novita.timer);
   controllaNovita();
   __novita.timer = setInterval(controllaNovita, 15000);
