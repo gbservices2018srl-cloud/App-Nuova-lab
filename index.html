@@ -1045,7 +1045,10 @@ async function renderNuovoLavoro(profilo){
   };
   await caricaImpostazioniLab(collegamenti[0].laboratorio_id);
 
+  let invioInCorso = false;
   document.getElementById('btn-crea-lavoro').onclick = async () => {
+    if(invioInCorso) return; // un solo invio alla volta: niente lavori doppi
+    const btn = document.getElementById('btn-crea-lavoro');
     const laboratorio_id = document.getElementById('nl-laboratorio').value;
     const medico_id = document.getElementById('nl-medico').value;
     const cognome_paziente = document.getElementById('nl-cognome').value.trim();
@@ -1060,31 +1063,59 @@ async function renderNuovoLavoro(profilo){
     if(!cognome_paziente || !nome_paziente || !medico_id || !data_consegna_richiesta || !tipo_macro || !tipo_micro || !colore){
       mostraMsg('lavoro-msg', 'Compila tutti i campi obbligatori.', 'error'); return;
     }
-
-    const id = await generaIdLavoro(profilo);
-    const paziente_id = document.getElementById('nl-paziente-esistente').value || null;
-    const { error } = await sb.from('lavorazioni').insert({
-      id, studio_id: profilo.studio_id, laboratorio_id, medico_id, paziente_id,
-      cognome_paziente, nome_paziente, tipo_macro, tipo_micro, colore, note,
-      data_consegna_richiesta, consegna_stato: 'in_attesa', stato_lab: ''
-    });
-    if(error){ mostraMsg('lavoro-msg', 'Errore: ' + error.message, 'error'); return; }
-
     const files = Array.from(document.getElementById('nl-file').files);
-    const { data: { session } } = await sb.auth.getSession();
-    for(const file of files){
-      const path = `${id}/${Date.now()}_${file.name}`;
-      const { error: upErr } = await sb.storage.from('allegati').upload(path, file);
-      if(upErr){ mostraMsg('lavoro-msg', `Lavoro creato, ma errore caricando ${file.name}: ${upErr.message}`, 'error'); continue; }
-      await sb.from('allegati').insert({ lavorazione_id: id, nome_file: file.name, storage_path: path, caricato_da: session.user.id });
-    }
+    invioInCorso = true; btn.disabled = true;
+    const stato = t => { btn.textContent = t; mostraMsg('lavoro-msg', t + ' Non chiudere la pagina e non premere di nuovo.', 'ok'); };
+    stato('⏳ Invio in corso…');
+    try {
+      // stesso paziente e stesso lavoro inviati da poco? Probabilmente è un doppio invio
+      const dieciMin = new Date(Date.now() - 15 * 60000).toISOString();
+      const { data: simili } = await sb.from('lavorazioni').select('id, created_at').eq('studio_id', profilo.studio_id)
+        .ilike('cognome_paziente', cognome_paziente).ilike('nome_paziente', nome_paziente).eq('tipo_micro', tipo_micro)
+        .gte('created_at', dieciMin).limit(1);
+      if(simili && simili.length && !confirm(`Hai appena inviato un lavoro uguale per questo paziente (${simili[0].id}).\n\nVuoi davvero crearne un altro?`)){
+        throw new Error(`Non inviato: il lavoro ${simili[0].id} è già stato ricevuto dal laboratorio. Lo trovi in «I miei lavori».`);
+      }
+      const id = await generaIdLavoro(profilo);
+      const paziente_id = document.getElementById('nl-paziente-esistente').value || null;
+      const { error } = await sb.from('lavorazioni').insert({
+        id, studio_id: profilo.studio_id, laboratorio_id, medico_id, paziente_id,
+        cognome_paziente, nome_paziente, tipo_macro, tipo_micro, colore, note,
+        data_consegna_richiesta, consegna_stato: 'in_attesa', stato_lab: ''
+      });
+      if(error) throw new Error('Errore: ' + error.message);
 
-    mostraMsg('lavoro-msg', `Lavoro ${id} creato e inviato al laboratorio.`, 'ok');
-    document.getElementById('nl-paziente-esistente').value = '';
-    document.getElementById('nl-cognome').disabled = false;
-    document.getElementById('nl-nome').disabled = false;
-    document.getElementById('nl-file').value = '';
-    ['nl-cognome','nl-nome','nl-data','nl-macro','nl-micro','nl-colore','nl-note'].forEach(idc => document.getElementById(idc).value = '');
+      const { data: { session } } = await sb.auth.getSession();
+      const caricati = [], falliti = [];
+      for(let i = 0; i < files.length; i++){
+        const file = files[i];
+        stato(`⏳ Lavoro ${id} creato. Carico gli allegati: ${i + 1} di ${files.length} (${file.name})…`);
+        const path = `${id}/${Date.now()}_${file.name}`;
+        const { error: upErr } = await sb.storage.from('allegati').upload(path, file);
+        if(upErr){ falliti.push(`${file.name}: ${upErr.message}`); continue; }
+        await sb.from('allegati').insert({ lavorazione_id: id, nome_file: file.name, storage_path: path, caricato_da: session.user.id });
+        caricati.push(file.name);
+      }
+      // conferma ben visibile al posto del modulo: così non si reinvia per errore
+      const card = btn.closest('.card');
+      card.innerHTML = `
+        <div style="text-align:center;padding:18px 8px;">
+          <div style="font-size:44px;line-height:1;">✅</div>
+          <h2 style="margin:10px 0 4px;">Lavoro ${escH(id)} inviato al laboratorio</h2>
+          <p style="color:var(--muted);margin:0 0 12px;">${escH(cognome_paziente)} ${escH(nome_paziente)} · ${escH(tipo_macro)} › ${escH(tipo_micro)} · consegna richiesta ${escH(data_consegna_richiesta.split('-').reverse().join('/'))}</p>
+          ${caricati.length ? `<p style="margin:0 0 6px;">📎 Allegati caricati (${caricati.length}): ${caricati.map(escH).join(', ')}</p>` : '<p style="margin:0 0 6px;color:var(--muted);">Nessun allegato.</p>'}
+          ${falliti.length ? `<div class="msg error" style="display:block;text-align:left;margin:8px 0;">Questi allegati NON sono stati caricati: ${falliti.map(escH).join(' · ')}.<br>Inviali al laboratorio dalla chat della pratica ${escH(id)} (in «I miei lavori»).</div>` : ''}
+          <p style="margin:12px 0 14px;"><strong>Non serve inviarlo di nuovo.</strong> Lo trovi in «I miei lavori».</p>
+          <button class="btn secondary" id="btn-vai-lavori">Vai a I miei lavori</button>
+          <button class="btn" id="btn-altro-lavoro">+ Crea un altro lavoro</button>
+        </div>`;
+      document.getElementById('btn-vai-lavori').onclick = () => vaiA('lavori');
+      document.getElementById('btn-altro-lavoro').onclick = () => renderNuovoLavoro(profilo);
+      card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    } catch(e){
+      mostraMsg('lavoro-msg', e.message, 'error');
+      invioInCorso = false; btn.disabled = false; btn.textContent = 'Crea lavoro e invia al laboratorio';
+    }
   };
 }
 
@@ -1373,7 +1404,10 @@ async function renderNuovoLavoroLab(profilo, daDashboard){
     else { cogInput.value = ''; nomeInput.value = ''; cogInput.disabled = false; nomeInput.disabled = false; }
   };
 
+  let invioLabInCorso = false;
   document.getElementById('btn-crea-lavoro-lab').onclick = async () => {
+    if(invioLabInCorso) return;
+    const btnL = document.getElementById('btn-crea-lavoro-lab');
     const studio_id = document.getElementById('nll-studio').value;
     const medico_id = document.getElementById('nll-medico').value;
     const cognome_paziente = document.getElementById('nll-cognome').value.trim();
@@ -1388,7 +1422,9 @@ async function renderNuovoLavoroLab(profilo, daDashboard){
     if(!cognome_paziente || !nome_paziente || !medico_id || !data_consegna_richiesta || !tipo_macro || !tipo_micro || !colore){
       mostraMsg('lavoro-lab-msg', 'Compila tutti i campi obbligatori.', 'error'); return;
     }
-
+    invioLabInCorso = true; btnL.disabled = true; btnL.textContent = '⏳ Invio in corso…';
+    const fine = () => { invioLabInCorso = false; btnL.disabled = false; btnL.textContent = 'Crea lavoro'; };
+    try {
     const { data: studio } = await sb.from('studi').select('sigla').eq('id', studio_id).single();
     const anno = new Date().getFullYear();
     const { count } = await sb.from('lavorazioni').select('id', { count: 'exact', head: true }).eq('studio_id', studio_id).like('id', `${studio.sigla}-${anno}-%`);
@@ -1401,22 +1437,29 @@ async function renderNuovoLavoroLab(profilo, daDashboard){
       cognome_paziente, nome_paziente, tipo_macro, tipo_micro, colore, note,
       data_consegna_richiesta, consegna_stato: 'accettata', data_consegna_confermata: data_consegna_richiesta, stato_lab: ''
     });
-    if(error){ mostraMsg('lavoro-lab-msg', 'Errore: ' + error.message, 'error'); return; }
+    if(error){ mostraMsg('lavoro-lab-msg', 'Errore: ' + error.message, 'error'); fine(); return; }
 
     const files = Array.from(document.getElementById('nll-file').files);
     const { data: { session } } = await sb.auth.getSession();
-    for(const file of files){
+    const falliti = [];
+    for(let i = 0; i < files.length; i++){
+      const file = files[i];
+      btnL.textContent = `⏳ Allegato ${i + 1} di ${files.length}…`;
+      mostraMsg('lavoro-lab-msg', `Lavoro ${id} creato. Carico ${file.name} (${i + 1} di ${files.length}): non chiudere la pagina.`, 'ok');
       const path = `${id}/${Date.now()}_${file.name}`;
       const { error: upErr } = await sb.storage.from('allegati').upload(path, file);
       if(!upErr) await sb.from('allegati').insert({ lavorazione_id: id, nome_file: file.name, storage_path: path, caricato_da: session.user.id });
+      else falliti.push(file.name);
     }
 
-    mostraMsg('lavoro-lab-msg', `Lavoro ${id} creato.`, 'ok');
+    mostraMsg('lavoro-lab-msg', `✅ Lavoro ${id} creato${files.length ? ` con ${files.length - falliti.length} allegat${files.length - falliti.length === 1 ? 'o' : 'i'}` : ''}.${falliti.length ? ' Non caricati: ' + falliti.join(', ') + '.' : ''} Non serve inviarlo di nuovo.`, falliti.length ? 'error' : 'ok');
+    fine();
     document.getElementById('nll-paziente-esistente').value = '';
     document.getElementById('nll-cognome').disabled = false;
     document.getElementById('nll-nome').disabled = false;
     document.getElementById('nll-file').value = '';
     ['nll-cognome','nll-nome','nll-note'].forEach(idc => document.getElementById(idc).value = '');
+    } catch(e){ mostraMsg('lavoro-lab-msg', 'Errore: ' + e.message, 'error'); fine(); }
   };
 }
 
