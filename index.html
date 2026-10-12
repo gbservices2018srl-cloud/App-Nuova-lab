@@ -2799,21 +2799,9 @@ function base64urlToUint8Array(base64url){
 }
 
 async function renderNotificheBox(profilo){
+  // Le notifiche (anche a telefono chiuso) si attivano una volta sola per tutte le app su appgestione.it
   const box = document.getElementById('notifiche-box');
-  if(!('serviceWorker' in navigator) || !('PushManager' in window)){
-    box.innerHTML = '';
-    return;
-  }
-  if(Notification.permission === 'granted'){
-    box.innerHTML = `<div style="font-size:11.5px;color:var(--ok);">🔔 Notifiche attive</div>`;
-    return;
-  }
-  if(Notification.permission === 'denied'){
-    box.innerHTML = `<div style="font-size:11.5px;color:var(--muted);">🔕 Notifiche bloccate dal browser</div>`;
-    return;
-  }
-  box.innerHTML = `<button class="nav-btn" id="btn-attiva-notifiche" style="border:1px solid var(--line);">🔔 Attiva notifiche</button>`;
-  document.getElementById('btn-attiva-notifiche').onclick = () => attivaNotifiche(profilo);
+  box.innerHTML = `<a class="nav-btn" href="https://appgestione.it/" target="_blank" rel="noopener" style="border:1px solid var(--line);display:block;text-decoration:none;">🔔 Notifiche: attivale su To Smile</a>`;
 }
 
 async function attivaNotifiche(profilo){
