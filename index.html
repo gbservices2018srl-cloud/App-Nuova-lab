@@ -1076,10 +1076,9 @@ async function renderNuovoLavoro(profilo){
       if(simili && simili.length && !confirm(`Hai appena inviato un lavoro uguale per questo paziente (${simili[0].id}).\n\nVuoi davvero crearne un altro?`)){
         throw new Error(`Non inviato: il lavoro ${simili[0].id} è già stato ricevuto dal laboratorio. Lo trovi in «I miei lavori».`);
       }
-      const id = await generaIdLavoro(profilo);
       const paziente_id = document.getElementById('nl-paziente-esistente').value || null;
-      const { error } = await sb.from('lavorazioni').insert({
-        id, studio_id: profilo.studio_id, laboratorio_id, medico_id, paziente_id,
+      const { id, error } = await inserisciLavoro(profilo.studio_id, {
+        laboratorio_id, medico_id, paziente_id,
         cognome_paziente, nome_paziente, tipo_macro, tipo_micro, colore, note,
         data_consegna_richiesta, consegna_stato: 'in_attesa', stato_lab: ''
       });
@@ -1119,15 +1118,20 @@ async function renderNuovoLavoro(profilo){
   };
 }
 
-async function generaIdLavoro(profilo){
-  const { data: studio } = await sb.from('studi').select('sigla').eq('id', profilo.studio_id).single();
-  const anno = new Date().getFullYear();
-  const { count } = await sb.from('lavorazioni')
-    .select('id', { count: 'exact', head: true })
-    .eq('studio_id', profilo.studio_id)
-    .like('id', `${studio.sigla}-${anno}-%`);
-  const progressivo = String((count || 0) + 1).padStart(4, '0');
-  return `${studio.sigla}-${anno}-${progressivo}`;
+// Nuovo lavoro con codice SIGLA-ANNO-NNNN: il numero lo dà il database (il più alto esistente + 1).
+// Se nel frattempo qualcun altro ha preso lo stesso codice, riprova con il successivo.
+async function inserisciLavoro(studio_id, campi){
+  let ultimoErr = null;
+  for(let t = 0; t < 5; t++){
+    const { data: id, error: e1 } = await sb.rpc('prossimo_id_lavoro', { p_studio: studio_id });
+    if(e1) return { error: e1 };
+    const { error } = await sb.from('lavorazioni').insert({ id, studio_id, ...campi });
+    if(!error) return { id };
+    ultimoErr = error;
+    if(error.code !== '23505') return { error };
+    await new Promise(r => setTimeout(r, 300 + Math.random() * 500));
+  }
+  return { error: ultimoErr };
 }
 
 /* ---------- STUDIO: I MIEI LAVORI ---------- */
@@ -1425,15 +1429,9 @@ async function renderNuovoLavoroLab(profilo, daDashboard){
     invioLabInCorso = true; btnL.disabled = true; btnL.textContent = '⏳ Invio in corso…';
     const fine = () => { invioLabInCorso = false; btnL.disabled = false; btnL.textContent = 'Crea lavoro'; };
     try {
-    const { data: studio } = await sb.from('studi').select('sigla').eq('id', studio_id).single();
-    const anno = new Date().getFullYear();
-    const { count } = await sb.from('lavorazioni').select('id', { count: 'exact', head: true }).eq('studio_id', studio_id).like('id', `${studio.sigla}-${anno}-%`);
-    const progressivo = String((count || 0) + 1).padStart(4, '0');
-    const id = `${studio.sigla}-${anno}-${progressivo}`;
-
     const paziente_id = document.getElementById('nll-paziente-esistente').value || null;
-    const { error } = await sb.from('lavorazioni').insert({
-      id, studio_id, laboratorio_id: profilo.laboratorio_id, medico_id, paziente_id,
+    const { id, error } = await inserisciLavoro(studio_id, {
+      laboratorio_id: profilo.laboratorio_id, medico_id, paziente_id,
       cognome_paziente, nome_paziente, tipo_macro, tipo_micro, colore, note,
       data_consegna_richiesta, consegna_stato: 'accettata', data_consegna_confermata: data_consegna_richiesta, stato_lab: ''
     });
