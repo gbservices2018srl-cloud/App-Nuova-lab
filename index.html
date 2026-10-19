@@ -97,6 +97,28 @@
     body > *:not(#print-area){display:none !important;}
     #print-area{display:block !important;padding:20px;max-width:720px;margin:0 auto;font-family:Arial,Helvetica,sans-serif;color:#26272b;}
   }
+  /* denti / elementi */
+  .denti-box{border:2px solid var(--accent);border-radius:8px;padding:14px 16px;margin-top:12px;background:#fff;}
+  .denti-top{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;}
+  .denti-top h3{margin:0 0 2px;font-size:15px;}
+  .denti-top p{margin:0;font-size:12.5px;color:var(--muted);}
+  .denti-senza{display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;padding:6px 10px;border:1px solid var(--line);border-radius:7px;}
+  .denti-senza input{width:18px;height:18px;accent-color:var(--accent-dark);}
+  .denti-schema{overflow-x:auto;margin-top:12px;padding-bottom:4px;}
+  .denti-schema .lato{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);min-width:700px;}
+  .denti-riga{display:flex;gap:5px;min-width:700px;margin:6px 0;}
+  .denti-riga .mezzo{width:2px;background:var(--ink);margin:0 6px;border-radius:2px;}
+  .denti-linea{height:2px;background:var(--ink);border-radius:2px;min-width:700px;}
+  .dente{all:unset;box-sizing:border-box;cursor:pointer;flex:1 0 36px;height:44px;border-radius:7px;border:1px solid #d6d3cb;background:#fff;text-align:center;line-height:42px;font-size:13.5px;font-weight:600;}
+  .dente.on{background:var(--accent);border:2px solid #8a6a0e;line-height:40px;}
+  .dente:focus-visible{outline:2px solid var(--accent-dark);outline-offset:2px;}
+  .denti-azioni{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+  .denti-conta{display:flex;align-items:center;gap:16px;flex-wrap:wrap;background:#fbf6e6;border-radius:8px;padding:10px 14px;margin-top:12px;}
+  .denti-conta .num{display:flex;align-items:center;gap:6px;}
+  .denti-conta .num button{all:unset;cursor:pointer;width:40px;height:40px;border:1px solid var(--line);background:#fff;border-radius:8px;text-align:center;font-size:20px;line-height:38px;}
+  .denti-conta .num b{min-width:44px;text-align:center;font-size:24px;}
+  .badge-elem{display:inline-block;margin-top:4px;background:var(--accent);color:#2b2b2f;border-radius:20px;padding:2px 9px;font-size:11.5px;font-weight:700;white-space:nowrap;}
+  .sub-elem{display:block;margin-top:3px;font-size:11.5px;color:var(--muted);}
 </style>
 </head>
 <body>
@@ -169,6 +191,80 @@ if (/(^|&)sso/.test(location.hash.slice(1))) history.replaceState(null, '', loca
 const sb = supabase.createClient(window.NUOVALAB_CONFIG.SUPABASE_URL, window.NUOVALAB_CONFIG.SUPABASE_ANON_KEY);
 
 function escH(v){return String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+
+/* ---------- Denti / elementi: più elementi nello stesso lavoro (una prescrizione, fatturati per elemento) ---------- */
+const DENTI_SUP = [18,17,16,15,14,13,12,11,21,22,23,24,25,26,27,28];
+const DENTI_INF = [48,47,46,45,44,43,42,41,31,32,33,34,35,36,37,38];
+const DENTI_ORDINE = [...DENTI_SUP, ...DENTI_INF];
+const ordinaDenti = d => [...new Set(d)].filter(n => DENTI_ORDINE.includes(n)).sort((a, b) => DENTI_ORDINE.indexOf(a) - DENTI_ORDINE.indexOf(b));
+// "3 elementi · denti 14, 15, 16" (vuoto per i lavori da 1 elemento senza denti)
+function testoElementi(j){
+  const n = j.elementi || 1, d = j.denti || [];
+  if(n === 1 && !d.length) return '';
+  return `${n} ${n === 1 ? 'elemento' : 'elementi'}${d.length ? ` · ${d.length === 1 ? 'dente' : 'denti'} ${d.join(', ')}` : ''}`;
+}
+function elementiHtml(j){
+  const t = testoElementi(j); if(!t) return '';
+  return (j.elementi || 1) > 1 ? `<br><span class="badge-elem">× ${escH(t)}</span>` : `<span class="sub-elem">${escH(t)}</span>`;
+}
+function htmlDenti(p, iniziale){
+  const riga = arr => arr.map(n => `<button type="button" class="dente" data-dente="${n}" aria-pressed="false" aria-label="Dente ${n}">${n}</button>`).join('');
+  return `<div class="denti-box" id="${p}-denti">
+    <div class="denti-top">
+      <div><h3>Denti / elementi</h3><p>Tocca i denti su cui si lavora: il numero di elementi si calcola da solo. Una sola prescrizione, in fattura il prezzo vale per ogni elemento.</p></div>
+      <label class="denti-senza"><input type="checkbox" id="${p}-senza"> Lavoro senza denti precisi (bite, mascherine…)</label>
+    </div>
+    <div id="${p}-schema-wrap">
+      <div class="denti-schema">
+        <div class="lato"><span>Superiore destra</span><span>Superiore sinistra</span></div>
+        <div class="denti-riga">${riga(DENTI_SUP.slice(0,8))}<div class="mezzo"></div>${riga(DENTI_SUP.slice(8))}</div>
+        <div class="denti-linea"></div>
+        <div class="denti-riga">${riga(DENTI_INF.slice(0,8))}<div class="mezzo"></div>${riga(DENTI_INF.slice(8))}</div>
+        <div class="lato"><span>Inferiore destra</span><span>Inferiore sinistra</span></div>
+      </div>
+      <div class="denti-azioni">
+        <button type="button" class="btn secondary" data-denti-tutti="sup">Tutta l'arcata superiore</button>
+        <button type="button" class="btn secondary" data-denti-tutti="inf">Tutta l'arcata inferiore</button>
+        <button type="button" class="btn secondary" data-denti-tutti="no">Azzera</button>
+      </div>
+    </div>
+    <div class="denti-conta">
+      <div><div style="font-size:12px;color:var(--muted);">Numero di elementi</div>
+        <div class="num"><button type="button" data-elem="-1" aria-label="Un elemento in meno">−</button><b id="${p}-n">1</b><button type="button" data-elem="1" aria-label="Un elemento in più">+</button></div></div>
+      <div style="flex:1 1 240px;"><div id="${p}-riep" style="font-weight:600;font-size:14px;"></div><div id="${p}-nota" style="font-size:12px;color:var(--muted);"></div></div>
+    </div>
+  </div>`;
+}
+// Collega lo schema già nella pagina; restituisce una funzione che legge { elementi, denti }
+function attivaDenti(p, iniziale){
+  const box = document.getElementById(p + '-denti');
+  let sel = ordinaDenti(iniziale?.denti || []), manuale = null, senza = false;
+  if(iniziale){
+    const n0 = iniziale.elementi || 1;
+    if(!sel.length && n0 > 1) senza = true; // più elementi senza denti indicati
+    if(n0 !== Math.max(sel.length, 1)) manuale = n0;
+  }
+  const disegna = () => {
+    box.querySelectorAll('[data-dente]').forEach(b => { const on = sel.includes(+b.dataset.dente); b.classList.toggle('on', on); b.setAttribute('aria-pressed', on); });
+    document.getElementById(p + '-schema-wrap').hidden = senza;
+    document.getElementById(p + '-senza').checked = senza;
+    const d = senza ? [] : sel, n = manuale ?? Math.max(d.length, 1);
+    document.getElementById(p + '-n').textContent = n;
+    document.getElementById(p + '-riep').textContent = d.length || senza ? `${n} ${n === 1 ? 'elemento' : 'elementi'}${d.length ? ` — ${d.length === 1 ? 'dente' : 'denti'} ${d.join(', ')}` : ''}` : `${n} ${n === 1 ? 'elemento' : 'elementi'} — nessun dente scelto`;
+    document.getElementById(p + '-nota').textContent = !senza && manuale != null && manuale !== d.length
+      ? `Hai indicato ${n} elementi su ${d.length} ${d.length === 1 ? 'dente' : 'denti'} (per esempio un ponte con elemento intermedio): viene fatturato ${n} volte.` : '';
+  };
+  box.onclick = e => {
+    const t = e.target.closest('[data-dente],[data-denti-tutti],[data-elem]'); if(!t) return;
+    if(t.dataset.dente){ const n = +t.dataset.dente; sel = sel.includes(n) ? sel.filter(x => x !== n) : ordinaDenti([...sel, n]); manuale = null; }
+    else if(t.dataset.dentiTutti){ sel = t.dataset.dentiTutti === 'sup' ? [...DENTI_SUP] : t.dataset.dentiTutti === 'inf' ? [...DENTI_INF] : []; manuale = null; }
+    else { const cur = manuale ?? Math.max((senza ? [] : sel).length, 1); manuale = Math.min(64, Math.max(1, cur + (+t.dataset.elem))); }
+    disegna();
+  };
+  document.getElementById(p + '-senza').onchange = e => { senza = e.target.checked; manuale = null; disegna(); };
+  disegna();
+  return () => { const d = senza ? [] : sel; return { elementi: manuale ?? Math.max(d.length, 1), denti: d }; };
+}
 function mostraMsg(id, testo, tipo){
   const el = document.getElementById(id);
   el.textContent = testo;
@@ -1003,6 +1099,7 @@ async function renderNuovoLavoro(profilo){
         <div class="field"><label>Tipo di lavoro</label><select id="nl-micro"></select></div>
         <div class="field"><label>Colore</label><select id="nl-colore"></select></div>
       </div>
+      ${htmlDenti('nl')}
       <div class="field" style="margin-top:10px;"><label>Note cliniche</label><textarea id="nl-note" rows="3" style="width:100%;border:1px solid var(--line);border-radius:6px;padding:10px;font-family:inherit;"></textarea></div>
       <div class="field" style="margin-top:10px;"><label>Allegati (foto, scansioni, STL)</label><input id="nl-file" type="file" multiple accept=".jpg,.jpeg,.png,.stl"></div>
       <button class="btn" id="btn-crea-lavoro" style="margin-top:12px;">Crea lavoro e invia al laboratorio</button>
@@ -1045,6 +1142,7 @@ async function renderNuovoLavoro(profilo){
   };
   await caricaImpostazioniLab(collegamenti[0].laboratorio_id);
 
+  const leggiDenti = attivaDenti('nl');
   let invioInCorso = false;
   document.getElementById('btn-crea-lavoro').onclick = async () => {
     if(invioInCorso) return; // un solo invio alla volta: niente lavori doppi
@@ -1078,7 +1176,7 @@ async function renderNuovoLavoro(profilo){
       }
       const paziente_id = document.getElementById('nl-paziente-esistente').value || null;
       const { id, error } = await inserisciLavoro(profilo.studio_id, {
-        laboratorio_id, medico_id, paziente_id,
+        laboratorio_id, medico_id, paziente_id, ...leggiDenti(),
         cognome_paziente, nome_paziente, tipo_macro, tipo_micro, colore, note,
         data_consegna_richiesta, consegna_stato: 'in_attesa', stato_lab: ''
       });
@@ -1144,7 +1242,7 @@ async function renderMieiLavori(profilo){
 async function caricaMieiLavori(profilo){
   const el = document.getElementById('lista-miei-lavori');
   const { data, error } = await sb.from('lavorazioni')
-    .select('id, laboratorio_id, cognome_paziente, nome_paziente, tipo_macro, tipo_micro, colore, data_consegna_richiesta, data_consegna_confermata, consegna_stato, riprogrammazione_vista, motivo_riprogrammazione, stato_lab, stato_studio, motivo_rifiuto, rifiutato_il, rifiuto_visto, medici(nome), laboratori(nome)')
+    .select('id, laboratorio_id, cognome_paziente, nome_paziente, tipo_macro, tipo_micro, colore, elementi, denti, data_consegna_richiesta, data_consegna_confermata, consegna_stato, riprogrammazione_vista, motivo_riprogrammazione, stato_lab, stato_studio, motivo_rifiuto, rifiutato_il, rifiuto_visto, medici(nome), laboratori(nome)')
     .eq('studio_id', profilo.studio_id).order('created_at', { ascending: false });
   if(error){ el.innerHTML = `<p class="empty">Errore: ${error.message}</p>`; return; }
   if(!data || data.length === 0){ el.innerHTML = `<p class="empty">Nessun lavoro creato.</p>`; return; }
@@ -1169,7 +1267,7 @@ async function caricaMieiLavori(profilo){
         <td>${j.cognome_paziente} ${j.nome_paziente}</td>
         <td>${j.medici?.nome || '—'}</td>
         <td>${j.laboratori?.nome || '—'}</td>
-        <td>${j.tipo_macro} › ${j.tipo_micro} · ${j.colore}</td>
+        <td>${j.tipo_macro} › ${j.tipo_micro} · ${j.colore}${elementiHtml(j)}</td>
         <td>${j.data_consegna_richiesta || '—'}</td>
         <td><span class="badge" style="background:#B3261E;color:#fff;"><span class="dot"></span>Rifiutato dal laboratorio</span>
           ${j.rifiutato_il ? `<div style="font-size:11px;color:var(--muted);">${new Date(j.rifiutato_il).toLocaleString('it-IT', { timeZone:'Europe/Rome', day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' })}</div>` : ''}
@@ -1183,7 +1281,7 @@ async function caricaMieiLavori(profilo){
         <td>${j.cognome_paziente} ${j.nome_paziente}</td>
         <td>${j.medici?.nome || '—'}</td>
         <td>${j.laboratori?.nome || '—'}</td>
-        <td>${j.tipo_macro} › ${j.tipo_micro} · ${j.colore}</td>
+        <td>${j.tipo_macro} › ${j.tipo_micro} · ${j.colore}${elementiHtml(j)}</td>
         <td>${cellaConsegna}</td>
         <td><span class="badge off"><span class="dot"></span>${STATO_LABEL[j.stato_lab] || j.stato_lab}</span></td>
         <td>${j.stato_studio === 'consegnato'
@@ -1296,6 +1394,35 @@ function apriModaleRifiuto(jobId, onSalvato){
   };
 }
 
+// Il laboratorio corregge numero di elementi e denti (lo studio riceve l'avviso; la modifica resta nello storico)
+function apriModaleElementi(j, onSalvato){
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;z-index:999;padding:16px;';
+  wrap.innerHTML = `
+    <div class="box" style="width:820px;max-width:100%;max-height:calc(100vh - 32px);overflow:auto;">
+      <h1 style="font-size:16px;margin-bottom:4px;">Correggi elementi · ${escH(j.id)}</h1>
+      <p style="font-size:12px;color:var(--muted);margin-top:0;">${escH(j.tipo_macro)} › ${escH(j.tipo_micro)}. Lo studio riceve un avviso con il nuovo numero.</p>
+      ${htmlDenti('ce')}
+      <button class="btn block" id="ce-salva" style="margin-top:12px;">Salva</button>
+      <button class="btn secondary block" id="ce-annulla" style="margin-top:6px;">Annulla</button>
+    </div>`;
+  document.body.appendChild(wrap);
+  const leggi = attivaDenti('ce', j);
+  document.getElementById('ce-annulla').onclick = () => wrap.remove();
+  document.getElementById('ce-salva').onclick = async () => {
+    const v = leggi();
+    if(v.elementi === (j.elementi || 1) && v.denti.join() === (j.denti || []).join()){ wrap.remove(); return; }
+    const b = document.getElementById('ce-salva'); b.disabled = true;
+    const { error } = await sb.from('lavorazioni').update(v).eq('id', j.id);
+    if(error){ b.disabled = false; alert('Errore: ' + error.message); return; }
+    const { data: { session } } = await sb.auth.getSession();
+    await sb.from('audit_log').insert({ utente_id: session.user.id, lavorazione_id: j.id, azione: 'correzione elementi', campo: 'elementi',
+      valore_precedente: testoElementi(j) || '1 elemento', valore_nuovo: testoElementi(v) || '1 elemento' });
+    wrap.remove();
+    onSalvato();
+  };
+}
+
 function apriModaleRiprogramma(jobId, onSalvato){
   const wrap = document.createElement('div');
   wrap.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;z-index:999;';
@@ -1361,6 +1488,7 @@ async function renderNuovoLavoroLab(profilo, daDashboard){
         <div class="field"><label>Tipo di lavoro</label><select id="nll-micro"></select></div>
         <div class="field"><label>Colore</label><select id="nll-colore"></select></div>
       </div>
+      ${htmlDenti('nll')}
       <div class="field" style="margin-top:10px;"><label>Note cliniche</label><textarea id="nll-note" rows="3" style="width:100%;border:1px solid var(--line);border-radius:6px;padding:10px;font-family:inherit;"></textarea></div>
       <div class="field" style="margin-top:10px;"><label>Allegati (foto, scansioni, STL)</label><input id="nll-file" type="file" multiple accept=".jpg,.jpeg,.png,.stl"></div>
       <button class="btn" id="btn-crea-lavoro-lab" style="margin-top:12px;">Crea lavoro</button>
@@ -1368,6 +1496,7 @@ async function renderNuovoLavoroLab(profilo, daDashboard){
     </div>
   `;
   if(daDashboard) document.getElementById('btn-torna-dashboard').onclick = () => renderDashboardLavorazioni(profilo);
+  const leggiDentiLab = attivaDenti('nll');
 
   let macroCorrenti = [];
   async function caricaImpostazioniProprie(){
@@ -1431,7 +1560,7 @@ async function renderNuovoLavoroLab(profilo, daDashboard){
     try {
     const paziente_id = document.getElementById('nll-paziente-esistente').value || null;
     const { id, error } = await inserisciLavoro(studio_id, {
-      laboratorio_id: profilo.laboratorio_id, medico_id, paziente_id,
+      laboratorio_id: profilo.laboratorio_id, medico_id, paziente_id, ...leggiDentiLab(),
       cognome_paziente, nome_paziente, tipo_macro, tipo_micro, colore, note,
       data_consegna_richiesta, consegna_stato: 'accettata', data_consegna_confermata: data_consegna_richiesta, stato_lab: ''
     });
@@ -1549,7 +1678,7 @@ async function caricaLavorazioniLab(profilo){
   const el = document.getElementById('lista-lavorazioni-lab');
   const { data: odontotecniciDb } = await sb.from('odontotecnici').select('nome').eq('laboratorio_id', profilo.laboratorio_id).order('nome');
   const { data, error } = await sb.from('lavorazioni')
-    .select('id, created_at, studio_id, medico_id, medici(nome), tipo_macro, tipo_micro, colore, data_consegna_richiesta, data_consegna_confermata, consegna_stato, stato_lab, odontotecnico, studi(nome), materiali_lavorazione(materiale, lotto), segnalazioni(tipo, dettaglio, created_at), allegati(id, nome_file, storage_path, scaricato_il)')
+    .select('id, created_at, studio_id, medico_id, medici(nome), tipo_macro, tipo_micro, colore, elementi, denti, data_consegna_richiesta, data_consegna_confermata, consegna_stato, stato_lab, odontotecnico, studi(nome), materiali_lavorazione(materiale, lotto), segnalazioni(tipo, dettaglio, created_at), allegati(id, nome_file, storage_path, scaricato_il)')
     .eq('laboratorio_id', profilo.laboratorio_id)
     .is('stato_studio', null)
     .neq('stato_lab', 'rifiutato') // i lavori rifiutati spariscono dalla dashboard (lo studio li vede ancora)
@@ -1579,7 +1708,8 @@ async function caricaLavorazioniLab(profilo){
             <div style="margin-top:4px;white-space:nowrap;">
               <button class="btn secondary" data-chat-medico="${j.id}" style="font-size:11px;padding:3px 7px;" title="Scrivi al medico prescrittore">💬 ${escH(j.medici?.nome || 'Medico')}</button>
             </div></td>
-          <td>${j.tipo_macro} › ${j.tipo_micro}</td>
+          <td>${j.tipo_macro} › ${j.tipo_micro}${elementiHtml(j)}
+            <div><button class="btn secondary" data-correggi-elem="${j.id}" style="margin-top:4px;font-size:11px;padding:3px 8px;">Correggi elementi</button></div></td>
           <td>${j.colore}</td>
           <td>${cellaConsegna}</td>
           <td style="max-width:160px;">
@@ -1637,6 +1767,10 @@ async function caricaLavorazioniLab(profilo){
   });
   el.querySelectorAll('[data-riprogramma]').forEach(btn => {
     btn.onclick = () => apriModaleRiprogramma(btn.dataset.riprogramma, () => caricaLavorazioniLab(profilo));
+  });
+  el.querySelectorAll('[data-correggi-elem]').forEach(btn => {
+    const j = data.find(x => x.id === btn.dataset.correggiElem);
+    btn.onclick = () => apriModaleElementi(j, () => caricaLavorazioniLab(profilo));
   });
   el.querySelectorAll('[data-rifiuta-lavoro]').forEach(btn => {
     btn.onclick = () => apriModaleRifiuto(btn.dataset.rifiutaLavoro, () => caricaLavorazioniLab(profilo));
@@ -1736,7 +1870,7 @@ async function caricaListino(profilo, studioId){
   window.__listinoCorrente = { righe, mappaPrezzi, studioId };
 
   el.innerHTML = `
-    <div class="tbl-wrap"><table><thead><tr><th>Categoria</th><th>Tipo di lavoro</th><th>Prezzo (€)</th><th></th><th></th></tr></thead><tbody>
+    <div class="tbl-wrap"><table><thead><tr><th>Categoria</th><th>Tipo di lavoro</th><th>Prezzo per elemento (€)</th><th></th><th></th></tr></thead><tbody>
       ${righe.map((r,i) => {
         const p = mappaPrezzi[`${r.macro}||${r.micro}`];
         return `<tr><td><input type="text" class="inline-text" value="${escH(r.macro)}" data-ren-macro-i="${i}"></td><td><input type="text" class="inline-text" value="${escH(r.micro)}" data-ren-micro-i="${i}"></td>
@@ -2103,6 +2237,7 @@ function generaHtmlDocumento(tipo, job, fabbricante){
         ${riga('Medico prescrittore', medicoLabel)}
         ${riga('Paziente', `${job.cognome_paziente} ${job.nome_paziente}`)}
         ${riga('Categoria e tipo di lavoro', `${job.tipo_macro} — ${job.tipo_micro}`)}
+        ${(job.elementi||1) > 1 || (job.denti||[]).length ? riga('Elementi', testoElementi(job).replace(' · ', ' — ')) : ''}
         ${riga('Colore richiesto', job.colore)}
         ${riga('Data di consegna richiesta', job.data_consegna_richiesta)}
         ${riga('Note cliniche', job.note || '—')}
@@ -2130,6 +2265,7 @@ function generaHtmlDocumento(tipo, job, fabbricante){
         ${riga('Paziente destinatario esclusivo', `${job.cognome_paziente} ${job.nome_paziente}`)}
         ${riga('Medico prescrittore', medicoLabel)}
         ${riga('Caratteristiche specifiche da prescrizione', `${job.tipo_macro} — ${job.tipo_micro}, colore ${job.colore}`)}
+        ${(job.elementi||1) > 1 || (job.denti||[]).length ? riga('Elementi', testoElementi(job).replace(' · ', ' — ')) : ''}
         ${riga('Materiali utilizzati', (job.materiali_lavorazione||[]).map(m=>`${m.materiale} (lotto ${m.lotto})`).join('; ') || 'non specificato')}
         ${riga('Odontotecnico designato', job.odontotecnico || 'non specificato')}
         ${riga('Data di consegna', job.data_consegna_confermata || job.data_consegna_richiesta)}
@@ -2149,6 +2285,7 @@ function generaHtmlDocumento(tipo, job, fabbricante){
         ${riga('Paziente', `${job.cognome_paziente} ${job.nome_paziente}`)}
         ${riga('Medico prescrittore', medicoLabel)}
         ${riga('Dispositivo', `${job.tipo_macro} — ${job.tipo_micro}`)}
+        ${(job.elementi||1) > 1 || (job.denti||[]).length ? riga('Elementi', testoElementi(job).replace(' · ', ' — ')) : ''}
         ${riga('Colore', job.colore)}
         ${riga('Odontotecnico designato', job.odontotecnico || 'non specificato')}
         ${riga('Data richiesta di consegna', job.data_consegna_richiesta)}
@@ -2182,6 +2319,7 @@ function generaHtmlDocumento(tipo, job, fabbricante){
       <table style="width:100%;border-collapse:collapse;">
         ${riga('Paziente', `${job.cognome_paziente} ${job.nome_paziente}`)}
         ${riga('Dispositivo', `${job.tipo_macro} — ${job.tipo_micro}, colore ${job.colore}`)}
+        ${(job.elementi||1) > 1 || (job.denti||[]).length ? riga('Elementi', testoElementi(job).replace(' · ', ' — ')) : ''}
       </table>
       <p style="margin-top:16px;">${testo}</p>
       <p>Il dispositivo è marcato come "dispositivo su misura" ai sensi del Regolamento (UE) 2017/745 e non reca marcatura CE, come previsto dall'art. 21 dello stesso Regolamento.</p>
@@ -2196,6 +2334,7 @@ function generaHtmlDocumento(tipo, job, fabbricante){
         ${riga('Studio', job.studi?.nome || '—')}
         ${riga('Paziente', `${job.cognome_paziente} ${job.nome_paziente}`)}
         ${riga('Dispositivo', `${job.tipo_macro} — ${job.tipo_micro}`)}
+        ${(job.elementi||1) > 1 || (job.denti||[]).length ? riga('Elementi', testoElementi(job).replace(' · ', ' — ')) : ''}
         ${riga('Data uscita dal laboratorio', job.data_in_consegna || '—')}
         ${riga('Data presa in carico dallo studio', job.data_chiusura || '—')}
         ${riga('Esito verifica alla consegna', job.stato_studio==='consegnato' ? 'Consegnato conforme' : 'In attesa di conferma')}
@@ -2472,7 +2611,7 @@ async function renderConsuntivo(profilo){
     const a = document.getElementById('cs-a').value;
     if(!studioId || !da || !a){ alert('Seleziona studio, data di inizio e data di fine.'); return; }
     const { data: lavori, error } = await sb.from('lavorazioni')
-      .select('id, tipo_macro, tipo_micro, data_in_consegna, stato_studio')
+      .select('id, tipo_macro, tipo_micro, data_in_consegna, stato_studio, elementi, denti')
       .eq('studio_id', studioId).eq('laboratorio_id', profilo.laboratorio_id)
       .gte('data_in_consegna', da).lte('data_in_consegna', a);
     if(error){ alert('Errore: ' + error.message); return; }
@@ -2480,15 +2619,19 @@ async function renderConsuntivo(profilo){
     const mappaPrezzi = {};
     (prezzi||[]).forEach(p => { mappaPrezzi[`${p.tipo_macro}||${p.tipo_micro}`] = p.prezzo; });
 
-    const righe = (lavori||[]).map(j => ({ ...j, prezzo: mappaPrezzi[`${j.tipo_macro}||${j.tipo_micro}`] }));
-    const totale = righe.reduce((s,r) => s + (r.prezzo || 0), 0);
+    // il prezzo del listino vale per un elemento: totale riga = prezzo × elementi
+    const righe = (lavori||[]).map(j => { const prezzo = mappaPrezzi[`${j.tipo_macro}||${j.tipo_micro}`]; const q = j.elementi || 1;
+      return { ...j, q, prezzo, tot: prezzo != null ? prezzo * q : null }; });
+    const totale = righe.reduce((s,r) => s + (r.tot || 0), 0);
+    const totElementi = righe.reduce((s,r) => s + r.q, 0);
+    const eur = v => '€ ' + v.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
     document.getElementById('risultato-consuntivo').innerHTML = `
-      <table style="margin-top:18px;"><thead><tr><th>ID</th><th>Lavoro</th><th>Data uscita</th><th>Confermato</th><th>Prezzo</th></tr></thead><tbody>
-        ${righe.map(r => `<tr><td>${r.id}</td><td>${r.tipo_macro} › ${r.tipo_micro}</td><td>${r.data_in_consegna}</td><td>${r.stato_studio==='consegnato'?'✓':'—'}</td><td>${r.prezzo!=null?'€ '+r.prezzo.toFixed(2):'—'}</td></tr>`).join('')}
-        ${righe.length===0?`<tr><td colspan="5" class="empty">Nessun lavoro nel periodo.</td></tr>`:''}
-      </tbody></table>
-      ${righe.length>0 ? `<p style="text-align:right;font-weight:700;margin-top:10px;">Totale: € ${totale.toFixed(2)}</p>` : ''}
+      <div class="tbl-wrap"><table style="margin-top:18px;"><thead><tr><th>ID</th><th>Lavoro</th><th>Denti</th><th>Data uscita</th><th>Confermato</th><th style="text-align:right;">Q.tà</th><th style="text-align:right;">Prezzo unit.</th><th style="text-align:right;">Totale</th></tr></thead><tbody>
+        ${righe.map(r => `<tr${r.q>1?' style="background:#fffbef;"':''}><td>${r.id}</td><td>${r.tipo_macro} › ${r.tipo_micro}</td><td>${(r.denti||[]).join(', ') || '—'}</td><td>${r.data_in_consegna}</td><td>${r.stato_studio==='consegnato'?'✓':'—'}</td><td style="text-align:right;${r.q>1?'font-weight:700;':''}">${r.q}</td><td style="text-align:right;">${r.prezzo!=null?eur(r.prezzo):'—'}</td><td style="text-align:right;font-weight:600;">${r.tot!=null?eur(r.tot):'—'}</td></tr>`).join('')}
+        ${righe.length===0?`<tr><td colspan="8" class="empty">Nessun lavoro nel periodo.</td></tr>`:''}
+      </tbody></table></div>
+      ${righe.length>0 ? `<p style="text-align:right;margin-top:10px;"><span style="color:var(--muted);margin-right:18px;">${righe.length} ${righe.length===1?'lavoro':'lavori'} · ${totElementi} ${totElementi===1?'elemento':'elementi'}</span><strong>Totale: ${eur(totale)}</strong></p>` : ''}
     `;
   };
 }
@@ -2503,7 +2646,7 @@ async function renderMedicoDashboard(profilo){
 async function caricaLavoriMedico(profilo){
   const el = document.getElementById('lista-medico');
   const { data, error } = await sb.from('lavorazioni')
-    .select('id, cognome_paziente, nome_paziente, tipo_macro, tipo_micro, colore, data_consegna_richiesta, stato_lab, stato_studio, firme(id)')
+    .select('id, cognome_paziente, nome_paziente, tipo_macro, tipo_micro, colore, elementi, denti, data_consegna_richiesta, stato_lab, stato_studio, firme(id)')
     .eq('medico_id', profilo.medico_id).order('created_at', { ascending: false });
   if(error){ el.innerHTML = `<p class="empty">Errore: ${error.message}</p>`; return; }
   const STATO_LABEL = { '': 'Da iniziare', in_lavorazione: 'In lavorazione', in_ritardo: 'In ritardo', da_rifare: 'Da rifare', in_consegna: 'In consegna', rifiutato: 'Rifiutato dal laboratorio' };
@@ -2516,7 +2659,7 @@ async function caricaLavoriMedico(profilo){
         return `<tr>
           <td>${j.id}</td>
           <td>${j.cognome_paziente} ${j.nome_paziente}</td>
-          <td>${j.tipo_macro} › ${j.tipo_micro} · ${j.colore}</td>
+          <td>${j.tipo_macro} › ${j.tipo_micro} · ${j.colore}${elementiHtml(j)}</td>
           <td>${j.data_consegna_richiesta}</td>
           <td><span class="badge off"><span class="dot"></span>${STATO_LABEL[j.stato_lab] || j.stato_lab}</span></td>
           <td style="max-width:280px;">
