@@ -114,6 +114,14 @@ async function applicaLivello(id: string, t: Ticket, login: boolean, email: stri
   const { error } = p ? await admin.from("profili").update(row).eq("id", id)
     : await admin.from("profili").insert({ id, ...row, deve_cambiare_password: false });
   if (error) { console.error("profilo", error.message); return { ok: false, motivo: error.message }; }
+  // il pannello accessi comanda: i medici tolti alla persona non sono più attivi in Nuovalab (si disattivano, non si cancellano),
+  // quelli assegnati tornano attivi
+  const { data: vecchi } = await admin.from("profili_studi").select("medico_id").eq("profilo_id", id);
+  const prima = new Set([...(vecchi || []).map((x) => x.medico_id), p?.medico_id].filter(Boolean) as string[]);
+  const ora = new Set(studi.map((x) => x.medico_id).filter(Boolean) as string[]);
+  const tolti = [...prima].filter((m) => !ora.has(m));
+  if (tolti.length) await admin.from("medici").update({ attivo: false }).in("id", tolti);
+  if (ora.size) await admin.from("medici").update({ attivo: true }).in("id", [...ora]);
   await admin.from("profili_studi").delete().eq("profilo_id", id);
   if (studi.length) {
     const { error: e2 } = await admin.from("profili_studi").insert(studi.map((x) => ({ profilo_id: id, ...x })));
@@ -191,7 +199,14 @@ Deno.serve(async (req) => {
   }
 
   if (t.purpose === "revoke") {
-    if (uid) await admin.auth.admin.updateUserById(uid as string, { ban_duration: "876000h" });
+    if (uid) {
+      await admin.auth.admin.updateUserById(uid as string, { ban_duration: "876000h" });
+      // persona senza più accesso: i suoi medici non sono più attivi in Nuovalab (restano nello storico)
+      const { data: pr } = await admin.from("profili").select("medico_id").eq("id", uid).maybeSingle();
+      const { data: ps } = await admin.from("profili_studi").select("medico_id").eq("profilo_id", uid);
+      const meds = [...new Set([pr?.medico_id, ...(ps || []).map((x) => x.medico_id)].filter(Boolean) as string[])];
+      if (meds.length) await admin.from("medici").update({ attivo: false }).in("id", meds);
+    }
     return json({ ok: true, blocked: !!uid });
   }
 
