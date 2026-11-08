@@ -4,13 +4,186 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="robots" content="noindex">
-<title>Nuovalab · Area amministratori</title>
-<meta http-equiv="refresh" content="0; url=/">
-<script>location.replace('/' + location.search);</script>
-<!-- dopo una modifica la pagina resta dov'era (comune a tutte le app To Smile) -->
-<script src="https://appgestione.it/static/resta-qui.js?v=6" defer></script>
+<title>Nuovalab · Vendita</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="/config.js"></script>
+<style>
+  :root{ --ink:#3d3d42; --bg:#f7f6f2; --card:#fff; --line:#e2e0da; --muted:#7c7a80; --accent:#f6c647; --accent-dark:#c99a1f; --block:#b23a2e; --block-soft:#f8e6e3; --ok:#4c7a5b; --ok-soft:#e4efe8; --warn:#9a6200; --warn-soft:#fcefd6; }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 -apple-system,'Segoe UI',Arial,sans-serif}
+  header{background:#fff;border-bottom:1px solid var(--line);padding:12px 20px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;position:sticky;top:0;z-index:5}
+  header b{font-size:17px}
+  .wrap{display:flex;gap:20px;max-width:1300px;margin:0 auto;padding:20px}
+  aside{flex:0 0 210px;background:#fff;border:1px solid var(--line);border-radius:10px;padding:8px;height:max-content;position:sticky;top:76px}
+  aside button{all:unset;display:block;width:100%;box-sizing:border-box;padding:9px 12px;border-radius:7px;cursor:pointer;font-weight:600;color:var(--muted)}
+  aside button[aria-selected="true"]{background:#fdf3d4;color:var(--ink)}
+  main{flex:1;min-width:0}
+  @media (max-width:800px){.wrap{flex-direction:column}aside{position:static;display:flex;overflow-x:auto;flex:none;width:100%}aside button{width:auto;white-space:nowrap}}
+  h1{font-size:21px;margin:0 0 4px} .lead{color:var(--muted);margin:0 0 18px}
+  .card{background:#fff;border:1px solid var(--line);border-radius:10px;padding:18px 20px;margin-bottom:16px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px}
+  label.f{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted)}
+  input,select,textarea{font:inherit;color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:8px 10px;background:#fff}
+  textarea{width:100%;min-height:260px;line-height:1.5}
+  .btn{all:unset;cursor:pointer;background:var(--accent);font-weight:700;padding:8px 14px;border-radius:7px;font-size:13.5px;display:inline-block}
+  .btn:hover{background:var(--accent-dark);color:#fff} .btn.sec{background:#eef0f0} .btn.sec:hover{background:#e2e5e5;color:var(--ink)} .btn.sm{padding:4px 9px;font-size:12.5px}
+  .btn.danger{background:var(--block-soft);color:var(--block)}
+  table{width:100%;border-collapse:collapse;background:#fff;font-size:13px}
+  th{text-align:left;font-size:11px;text-transform:uppercase;color:var(--muted);background:#f7f8f8;padding:8px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+  td{padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  .tw{overflow-x:auto;border:1px solid var(--line);border-radius:10px}
+  .tag{display:inline-block;font-size:11.5px;font-weight:700;padding:2px 8px;border-radius:6px;white-space:nowrap}
+  .tag.ok{background:var(--ok-soft);color:var(--ok)} .tag.no{background:var(--block-soft);color:var(--block)} .tag.warn{background:var(--warn-soft);color:var(--warn)} .tag.off{background:#eef0f0;color:var(--muted)}
+  .msg{font-size:13px;margin-top:8px} .msg.error{color:var(--block)} .msg.ok{color:var(--ok)}
+  .muted{color:var(--muted)} .xs{font-size:12px}
+  #blocco{max-width:520px;margin:60px auto;text-align:center}
+</style>
 </head>
-<body style="font-family:system-ui,sans-serif;padding:24px">
-<p>Apro l'accesso di Nuovalab… Se non succede nulla, <a href="/">clicca qui</a>.</p>
+<body>
+<header><b>Nuovalab · Vendita</b><span><span id="chi" class="muted xs"></span> <a class="btn sec sm" href="/">Torna all'app</a></span></header>
+<div id="blocco" class="card" hidden></div>
+<div class="wrap" id="app" hidden>
+  <aside id="menu">
+    <button data-v="clienti" aria-selected="true">Clienti</button>
+    <button data-v="nuovo">+ Nuovo cliente</button>
+    <button data-v="password">Richieste password</button>
+    <button data-v="testi">Testi legali</button>
+  </aside>
+  <main id="main"></main>
+</div>
+<script>
+const sb = supabase.createClient(window.NUOVALAB_CONFIG.SUPABASE_URL, window.NUOVALAB_CONFIG.SUPABASE_ANON_KEY);
+const $ = s => document.querySelector(s);
+const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const data = d => d ? new Date(d + (String(d).length === 10 ? 'T12:00:00' : '')).toLocaleDateString('it-IT', { day:'numeric', month:'short', year:'numeric' }) : '—';
+const oggi = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' });
+function msg(id, t, tipo){ const el = document.getElementById(id); if(el){ el.className = 'msg ' + (tipo || ''); el.textContent = t; } }
+async function funzione(corpo){
+  const { data: { session } } = await sb.auth.getSession();
+  const r = await fetch(`${window.NUOVALAB_CONFIG.SUPABASE_URL}/functions/v1/hyper-worker`, { method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}`, 'apikey': window.NUOVALAB_CONFIG.SUPABASE_ANON_KEY }, body: JSON.stringify(corpo) });
+  const j = await r.json().catch(() => ({}));
+  if(!r.ok) throw new Error(j.error || 'Errore');
+  return j;
+}
+let vista = 'clienti';
+$('#menu').onclick = e => { const b = e.target.closest('[data-v]'); if(!b) return; vista = b.dataset.v; disegna(); };
+function disegna(){
+  document.querySelectorAll('#menu [data-v]').forEach(b => b.setAttribute('aria-selected', b.dataset.v === vista));
+  ({ clienti, nuovo, password, testi })[vista]($('#main'));
+}
+
+/* ---------- clienti ---------- */
+function stato(c){
+  if(c.sospeso) return '<span class="tag no">Sospeso</span>';
+  if(c.scadenza && c.scadenza < oggi()) return '<span class="tag no">Scaduto</span>';
+  if(c.scadenza){ const g = Math.ceil((new Date(c.scadenza + 'T23:59:59') - new Date()) / 864e5); if(g <= 30) return `<span class="tag warn">Scade tra ${g} gg</span>`; }
+  return '<span class="tag ok">Attivo</span>';
+}
+async function clienti(m){
+  m.innerHTML = '<p class="muted">Carico…</p>';
+  const { data: lista, error } = await sb.rpc('gestore_clienti');
+  if(error){ m.innerHTML = `<div class="card">${esc(error.message)}</div>`; return; }
+  m.innerHTML = `<h1>Clienti</h1><p class="lead">I laboratori a cui vendi Nuovalab. I pagamenti li segni tu: allunga la scadenza quando il cliente paga. Scaduto o sospeso, il laboratorio e i suoi studi non entrano più (i dati restano).</p>
+    ${lista.length ? `<div class="tw"><table><thead><tr><th>Laboratorio</th><th>Contatti</th><th>Stato</th><th>Scadenza</th><th>Studi</th><th>Uso</th><th>Testi</th><th></th></tr></thead><tbody>
+    ${lista.map(c => `<tr data-id="${c.id}"><td><b>${esc(c.nome)}</b><br><span class="muted xs">dal ${data(c.creato)}</span>${c.note ? `<br><span class="xs">${esc(c.note)}</span>` : ''}</td>
+      <td>${esc(c.referente)}<br><span class="xs">${esc(c.email)}</span>${c.telefono ? `<br><span class="xs">${esc(c.telefono)}</span>` : ''}</td>
+      <td>${stato(c)}</td>
+      <td><input type="date" data-scad="${c.id}" value="${esc(c.scadenza || '')}"><br><span class="xs"><button class="btn sec sm" data-piu="${c.id}" data-mesi="1">+1 mese</button> <button class="btn sec sm" data-piu="${c.id}" data-mesi="12">+1 anno</button></span></td>
+      <td>${c.studi} su <input type="number" min="1" max="500" data-max="${c.id}" value="${c.max_studi}" style="width:64px"></td>
+      <td class="xs">${c.utenti} accessi<br>${c.lavori} lavori<br>ultimo: ${data(c.ultimo_lavoro)}</td>
+      <td class="xs">${c.testi_accettati ? `accettati ${data(c.testi_accettati_il)}` : '<span class="tag off">da accettare</span>'}</td>
+      <td style="white-space:nowrap"><button class="btn sm ${c.sospeso ? '' : 'danger'}" data-sosp="${c.id}" data-v="${!c.sospeso}">${c.sospeso ? 'Riattiva' : 'Sospendi'}</button>
+        <button class="btn sec sm" data-mod="${c.id}">Modifica</button> <button class="btn sec sm" data-acc="${c.id}">Accessi</button></td></tr>`).join('')}
+    </tbody></table></div>` : '<div class="card">Nessun cliente. Crealo da «+ Nuovo cliente».</div>'}
+    <div id="dett"></div><div class="msg" id="cl-msg"></div>`;
+  const agg = async (id, p) => { const { error } = await sb.rpc('gestore_aggiorna_cliente', { p_id: id, p }); if(error){ msg('cl-msg', error.message, 'error'); return false; } clienti(m); return true; };
+  m.onchange = e => {
+    const s = e.target.closest('[data-scad]'), x = e.target.closest('[data-max]');
+    if(s) agg(s.dataset.scad, { scadenza: s.value });
+    if(x) agg(x.dataset.max, { max_studi: parseInt(x.value) || 1 });
+  };
+  m.onclick = async e => {
+    const p = e.target.closest('[data-piu]'), so = e.target.closest('[data-sosp]'), mo = e.target.closest('[data-mod]'), ac = e.target.closest('[data-acc]');
+    if(p){ const c = lista.find(x => x.id === p.dataset.piu); const base = c.scadenza && c.scadenza > oggi() ? new Date(c.scadenza + 'T12:00:00') : new Date();
+      base.setMonth(base.getMonth() + +p.dataset.mesi); agg(c.id, { scadenza: base.toISOString().slice(0, 10), sospeso: false }); }
+    if(so){ const c = lista.find(x => x.id === so.dataset.sosp); if(so.dataset.v === 'true' && !confirm(`Sospendere ${c.nome}? Il laboratorio e i suoi studi non potranno più entrare finché non lo riattivi.`)) return; agg(c.id, { sospeso: so.dataset.v === 'true' }); }
+    if(mo){ const c = lista.find(x => x.id === mo.dataset.mod);
+      $('#dett').innerHTML = `<div class="card"><h3 style="margin-top:0">Modifica ${esc(c.nome)}</h3><div class="grid">
+        <label class="f">Nome laboratorio<input id="mNome" value="${esc(c.nome)}"></label><label class="f">Referente<input id="mRef" value="${esc(c.referente)}"></label>
+        <label class="f">Telefono<input id="mTel" value="${esc(c.telefono)}"></label></div>
+        <label class="f" style="margin-top:10px">Note (pagamenti, accordi…)<input id="mNote" value="${esc(c.note)}"></label>
+        <p><button class="btn" id="mSalva">Salva</button></p>
+        <h3>Nuova password per un accesso del cliente</h3><div class="grid"><label class="f">Email dell'accesso<input id="rEmail" value="${esc(c.email)}"></label><label class="f">Nuova password (min. 8)<input id="rPw"></label></div>
+        <p><button class="btn sec" id="rOk">Reimposta password</button></p><div class="msg" id="m-msg"></div></div>`;
+      $('#mSalva').onclick = () => agg(c.id, { nome: $('#mNome').value, referente: $('#mRef').value, telefono: $('#mTel').value, note: $('#mNote').value });
+      $('#rOk').onclick = async () => { try { await funzione({ action: 'reset_cliente', email: $('#rEmail').value, newPassword: $('#rPw').value }); msg('m-msg', 'Password reimpostata: la cambierà al primo accesso.', 'ok'); } catch(er){ msg('m-msg', er.message, 'error'); } };
+      $('#dett').scrollIntoView({ behavior: 'smooth' }); }
+    if(ac){ try { const r = await funzione({ action: 'utenti_cliente_gestore', cliente: ac.dataset.acc });
+      $('#dett').innerHTML = `<div class="card"><h3 style="margin-top:0">Accessi di ${esc(lista.find(x => x.id === ac.dataset.acc).nome)}</h3><div class="tw"><table><thead><tr><th>Email</th><th>Ruolo</th><th>Stato</th><th>Ultimo accesso</th></tr></thead><tbody>
+        ${r.utenti.map(u => `<tr><td>${esc(u.email)}</td><td>${esc(u.ruolo)}</td><td>${u.attivo ? '<span class="tag ok">attivo</span>' : '<span class="tag off">disattivato</span>'}</td><td>${u.ultimo ? new Date(u.ultimo).toLocaleString('it-IT') : 'mai'}</td></tr>`).join('')}</tbody></table></div></div>`;
+      $('#dett').scrollIntoView({ behavior: 'smooth' }); } catch(er){ msg('cl-msg', er.message, 'error'); } }
+  };
+}
+
+/* ---------- nuovo cliente ---------- */
+function nuovo(m){
+  const tra = new Date(); tra.setFullYear(tra.getFullYear() + 1);
+  m.innerHTML = `<h1>Nuovo cliente</h1><p class="lead">Crea il laboratorio cliente e il suo accesso. Al primo accesso dovrà cambiare la password e accettare i testi legali.</p>
+    <div class="card"><div class="grid">
+      <label class="f">Nome del laboratorio<input id="nNome"></label><label class="f">Referente<input id="nRef"></label>
+      <label class="f">Email (è anche l'accesso)<input id="nEmail" type="email"></label><label class="f">Telefono<input id="nTel"></label>
+      <label class="f">Password iniziale (min. 8)<input id="nPw"></label><label class="f">Scadenza abbonamento<input id="nScad" type="date" value="${tra.toISOString().slice(0, 10)}"></label>
+      <label class="f">Numero di studi compresi<input id="nMax" type="number" min="1" value="3"></label></div>
+      <label class="f" style="margin-top:10px">Note<input id="nNote" placeholder="es. pagato con bonifico il…"></label>
+      <p><button class="btn" id="nOk">Crea cliente</button></p><div class="msg" id="n-msg"></div></div>`;
+  $('#nOk').onclick = async () => {
+    const corpo = { action: 'crea_cliente', nome: $('#nNome').value, referente: $('#nRef').value, email: $('#nEmail').value, telefono: $('#nTel').value,
+      password: $('#nPw').value, scadenza: $('#nScad').value, max_studi: $('#nMax').value, note: $('#nNote').value };
+    $('#nOk').style.pointerEvents = 'none';
+    try { await funzione(corpo); msg('n-msg', `Cliente creato. Comunica al laboratorio: indirizzo ${location.origin} · email ${corpo.email} · password iniziale ${corpo.password}`, 'ok'); }
+    catch(er){ msg('n-msg', er.message, 'error'); }
+    $('#nOk').style.pointerEvents = '';
+  };
+}
+
+/* ---------- richieste password dei clienti ---------- */
+async function password(m){
+  const { data: l, error } = await sb.rpc('gestore_richieste_reset');
+  if(error){ m.innerHTML = `<div class="card">${esc(error.message)}</div>`; return; }
+  m.innerHTML = `<h1>Richieste password</h1><p class="lead">I clienti che hanno chiesto una nuova password dalla pagina di accesso. Le richieste del personale To Smile restano nella sezione Utenti dell'app.</p>
+    <div class="card">${l.length ? l.map(r => `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:8px 0;border-bottom:1px solid var(--line)"><span style="flex:1"><b>${esc(r.email)}</b> · ${esc(r.cliente)}<br><span class="xs muted">${new Date(r.creata).toLocaleString('it-IT')}</span></span>
+      <input placeholder="Nuova password (min. 8)" data-pw="${esc(r.email)}"><button class="btn sm" data-ok="${esc(r.email)}">Reimposta</button></div>`).join('') : '<p class="muted">Nessuna richiesta.</p>'}<div class="msg" id="p-msg"></div></div>`;
+  m.onclick = async e => { const b = e.target.closest('[data-ok]'); if(!b) return;
+    try { await funzione({ action: 'reset_cliente', email: b.dataset.ok, newPassword: m.querySelector(`[data-pw="${CSS.escape(b.dataset.ok)}"]`).value }); msg('p-msg', 'Fatto: comunica la password al cliente.', 'ok'); password(m); }
+    catch(er){ msg('p-msg', er.message, 'error'); } };
+}
+
+/* ---------- testi legali ---------- */
+async function testi(m){
+  const { data: t, error } = await sb.rpc('gestore_testi');
+  if(error){ m.innerHTML = `<div class="card">${esc(error.message)}</div>`; return; }
+  const blocco = (k, titolo) => `<div class="card"><h3 style="margin-top:0">${titolo}</h3><p class="xs muted">Versione ${t[k]?.versione || 1} · aggiornato ${data(t[k]?.aggiornato)}</p>
+    <textarea id="t-${k}">${esc(t[k]?.testo || '')}</textarea><p><button class="btn" data-salva="${k}">Salva ${titolo.toLowerCase()}</button></p><div class="msg" id="tm-${k}"></div></div>`;
+  m.innerHTML = `<h1>Testi legali</h1><p class="lead">Li accetta ogni laboratorio cliente al primo accesso. Quando li modifichi, ai clienti viene chiesto di riaccettarli.</p>
+    ${blocco('condizioni', 'Condizioni di servizio')}${blocco('privacy', 'Informativa privacy')}`;
+  m.onclick = async e => { const b = e.target.closest('[data-salva]'); if(!b) return;
+    if(!confirm('Salvare? I clienti dovranno riaccettare i testi al prossimo accesso.')) return;
+    const { error: er } = await sb.rpc('gestore_salva_testo', { p_tipo: b.dataset.salva, p_testo: $('#t-' + b.dataset.salva).value });
+    msg('tm-' + b.dataset.salva, er ? er.message : 'Salvato.', er ? 'error' : 'ok'); };
+}
+
+/* ---------- accesso: solo il gestore ---------- */
+(async () => {
+  const { data: { session } } = await sb.auth.getSession();
+  const blocca = t => { $('#blocco').hidden = false; $('#blocco').innerHTML = t; };
+  if(!session) return blocca('<h1>Area riservata</h1><p class="muted">Entra prima in Nuovalab, poi torna su questa pagina.</p><a class="btn" href="/">Vai all\'accesso</a>');
+  const { data: ok } = await sb.rpc('sono_gestore');
+  if(!ok) return blocca('<h1>Area riservata</h1><p class="muted">Questa pagina è solo per il gestore della piattaforma.</p><a class="btn" href="/">Torna all\'app</a>');
+  $('#chi').textContent = session.user.email;
+  $('#app').hidden = false;
+  disegna();
+})();
+</script>
 </body>
 </html>

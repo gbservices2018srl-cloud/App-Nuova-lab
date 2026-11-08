@@ -4,7 +4,7 @@
 // 3) prepara l'accesso Supabase per quella email e rimanda all'app con un codice monouso (#sso=...),
 //    che l'app scambia con la sessione (verifyOtp). Nessuna email viene inviata.
 // Con un biglietto "revoke" (persona disattivata o senza più accesso) blocca l'utente.
-// Con "catalog" restituisce laboratori, studi e medici (per scegliere il livello nel pannello accessi).
+// Con "catalog" restituisce laboratori, studi e medici To Smile (per scegliere il livello nel pannello accessi): mai quelli dei laboratori clienti.
 // Con "sync" (persona appena approvata, o permessi/dati cambiati) crea o aggiorna subito utente e profilo,
 // senza aspettare il primo ingresso. "Nuovo medico" crea anche il medico nello studio scelto, con i dati dell'albo.
 // Il livello (ADMIN, LABORATORIO, STUDIO, MEDICO + quale) lo decide il pannello accessi: il profilo qui viene creato
@@ -31,7 +31,7 @@ const spiega = (m: string) => /duplicate|unique/i.test(m) ? "sigla o email già 
 // Sedi del gruppo dal pannello accessi → studi di Nuovalab (nome, sigla, email, attivo). Gli studi esterni restano come sono.
 async function copiaSedi(sedi: Sede[]): Promise<string[]> {
   const avvisi: string[] = [];
-  const { data } = await admin.from("studi").select("id, nome, sigla, email, central_id");
+  const { data } = await admin.from("studi").select("id, nome, sigla, email, central_id").is("cliente_id", null); // solo gli studi To Smile, mai quelli dei clienti
   // deno-lint-ignore no-explicit-any
   const lista: any[] = data || [];
   for (const x of sedi) {
@@ -137,9 +137,9 @@ async function utente(email: string, uid: string | null, ssoId?: string | null):
 
 async function catalogo() {
   const [l, s, m] = await Promise.all([
-    admin.from("laboratori").select("id, nome").eq("attivo", true).order("nome"),
-    admin.from("studi").select("id, nome, sigla, email").eq("attivo", true).order("nome"),
-    admin.from("medici").select("id, nome, studi(nome)").eq("attivo", true).order("nome"),
+    admin.from("laboratori").select("id, nome").eq("attivo", true).is("cliente_id", null).order("nome"),
+    admin.from("studi").select("id, nome, sigla, email").eq("attivo", true).is("cliente_id", null).order("nome"),
+    admin.from("medici").select("id, nome, studi!inner(nome, cliente_id)").eq("attivo", true).is("studi.cliente_id", null).order("nome"),
   ]);
   return {
     laboratori: (l.data || []).map((x) => ({ id: x.id, nome: x.nome })),

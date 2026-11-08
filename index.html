@@ -366,9 +366,15 @@ async function avviaApp(){
     document.getElementById('nuova-password-screen').style.display = 'flex';
     return;
   }
+  // laboratorio cliente: abbonamento, testi da accettare, logo
+  const { data: stCl } = await sb.rpc('stato_cliente');
+  CLIENTE = stCl || { cliente: false };
+  if(CLIENTE.cliente && (CLIENTE.sospeso || CLIENTE.scaduto)){ mostraBloccoCliente(); return; }
   document.getElementById('login-screen').style.display = 'none';
   document.getElementById('app-screen').style.display = 'flex';
   document.getElementById('chi-sono').textContent = session.user.email;
+  mostraLogoLab(profilo);
+  if(CLIENTE.testi_da_accettare) mostraTestiDaAccettare();
   document.getElementById('ruolo-corrente').textContent = profilo.ruolo;
   mostraCambioStudio(profilo);
 
@@ -376,15 +382,17 @@ async function avviaApp(){
     ADMIN: [
       { key:'laboratori', label:'Laboratori', fn: () => renderGestioneLaboratori() },
       { key:'studi', label:'Studi', fn: () => renderGestioneStudi() },
+      { key:'collegamenti', label:'Collegamenti', fn: () => renderCollegamentiAdmin() },
       { key:'accessi', label:'Crea accesso', fn: () => renderCreaAccesso() },
       { key:'utenti', label:'Utenti', fn: () => renderUtenti() },
       { key:'pazienti-admin', label:'Pazienti', fn: () => renderPazientiAdmin() }
     ],
     LABORATORIO: [
       { key:'dashboard', label:'Dashboard lavorazioni', fn: () => renderDashboardLavorazioni(profilo) },
-      { key:'studi', label:'I miei studi', fn: () => renderIMieiStudiLab(profilo) },
+      { key:'studi', label:'I miei studi', fn: () => CLIENTE.cliente ? renderStudiCliente(profilo) : renderIMieiStudiLab(profilo) },
       { key:'listino', label:'Listino prezzi', fn: () => renderListinoPrezzi(profilo) },
       { key:'impostazioni', label:'Impostazioni', fn: () => renderImpostazioni(profilo) },
+      ...(CLIENTE.cliente ? [{ key:'account', label:'Logo, backup e abbonamento', fn: () => renderAccountCliente(profilo) }] : []),
       { key:'archivio-lab', label:'Archivio', fn: () => renderArchivioLab(profilo) },
       { key:'consuntivo', label:'Consuntivo & fatturazione', fn: () => renderConsuntivo(profilo) },
       { key:'messaggi', label:'Messaggi', fn: () => renderMessaggiLab(profilo) }
@@ -415,6 +423,10 @@ async function avviaApp(){
   }
 
   window.PROFILO_CORRENTE = profilo;
+  if(profilo.ruolo === 'ADMIN'){
+    const { data: gest } = await sb.rpc('sono_gestore');
+    if(gest) items.push({ key:'vendita', label:'Vendita (clienti) ↗', fn: () => { window.open('/admin/', '_blank'); } });
+  }
   renderNotificheBox(profilo);
 
   const navEl = document.getElementById('sidebar-nav');
@@ -479,7 +491,7 @@ async function renderGestioneLaboratori(){
 
 async function caricaLaboratori(){
   const el = document.getElementById('tabella-laboratori');
-  const { data: laboratori, error } = await sb.from('laboratori').select('*').order('created_at', { ascending: true });
+  const { data: laboratori, error } = await sb.from('laboratori').select('*').is('cliente_id', null).order('created_at', { ascending: true }); // i laboratori clienti si gestiscono in /admin
   if(error){ el.innerHTML = `<p class="empty">Errore nel caricamento: ${error.message}</p>`; return; }
   if(!laboratori || laboratori.length === 0){ el.innerHTML = `<p class="empty">Nessun laboratorio ancora creato.</p>`; return; }
 
@@ -569,7 +581,7 @@ async function renderGestioneStudi(){
 
 async function caricaStudi(){
   const el = document.getElementById('tabella-studi');
-  const { data: studi, error } = await sb.from('studi').select('*').order('created_at', { ascending: true });
+  const { data: studi, error } = await sb.from('studi').select('*').is('cliente_id', null).order('created_at', { ascending: true });
   if(error){ el.innerHTML = `<p class="empty">Errore nel caricamento: ${error.message}</p>`; return; }
   if(!studi || studi.length === 0){ el.innerHTML = `<p class="empty">Nessuno studio ancora creato.</p>`; return; }
 
@@ -686,7 +698,7 @@ async function renderCreaAccesso(){
     const sel = document.getElementById('ca-entita');
     document.getElementById('ca-entita-label').textContent = ruolo === 'LABORATORIO' ? 'Laboratorio' : (ruolo === 'STUDIO' ? 'Studio' : 'Medico');
     if(ruolo === 'MEDICO'){
-      const { data, error } = await sb.from('medici').select('id, nome, studi(nome)').eq('attivo', true).order('nome');
+      const { data, error } = await sb.from('medici').select('id, nome, studi!inner(nome, cliente_id)').eq('attivo', true).is('studi.cliente_id', null).order('nome');
       if(error){ sel.innerHTML = `<option value="">Errore caricamento</option>`; return; }
       sel.innerHTML = (data && data.length)
         ? data.map(r => `<option value="${r.id}">${r.nome} — ${r.studi?.nome || ''}</option>`).join('')
@@ -694,7 +706,7 @@ async function renderCreaAccesso(){
       return;
     }
     const tabella = ruolo === 'LABORATORIO' ? 'laboratori' : 'studi';
-    const { data, error } = await sb.from(tabella).select('id, nome').eq('attivo', true).order('nome');
+    const { data, error } = await sb.from(tabella).select('id, nome').eq('attivo', true).is('cliente_id', null).order('nome');
     if(error){ sel.innerHTML = `<option value="">Errore caricamento</option>`; return; }
     sel.innerHTML = data.length
       ? data.map(r => `<option value="${r.id}">${r.nome}</option>`).join('')
@@ -737,6 +749,237 @@ async function renderCreaAccesso(){
       mostraMsg('accesso-msg', 'Errore di rete: ' + e.message, 'error');
     }
   };
+}
+
+/* ---------- STATO DEL LABORATORIO CLIENTE (versione venduta) ---------- */
+let CLIENTE = { cliente: false };
+async function chiamaFunzione(corpo){
+  const { data: { session } } = await sb.auth.getSession();
+  const resp = await fetch(`${window.NUOVALAB_CONFIG.SUPABASE_URL}/functions/v1/hyper-worker`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}`, 'apikey': window.NUOVALAB_CONFIG.SUPABASE_ANON_KEY },
+    body: JSON.stringify(corpo) });
+  const j = await resp.json().catch(() => ({}));
+  if(!resp.ok) throw new Error(j.error || 'Errore');
+  return j;
+}
+function fmtData(d){ return d ? new Date(d + (String(d).length === 10 ? 'T12:00:00' : '')).toLocaleDateString('it-IT', { day:'numeric', month:'long', year:'numeric' }) : '—'; }
+function mostraBloccoCliente(){
+  document.getElementById('app-screen').style.display = 'none';
+  document.getElementById('login-screen').style.display = 'flex';
+  const motivo = CLIENTE.sospeso ? 'L\'accesso di questo laboratorio è sospeso.' : `L'abbonamento è scaduto il ${fmtData(CLIENTE.scadenza)}.`;
+  mostraMsg('login-msg', motivo + ' Per riattivarlo contatta Nuovalab. I tuoi dati restano conservati.', 'error');
+  sb.auth.signOut();
+}
+async function mostraLogoLab(profilo){
+  if(profilo.ruolo !== 'LABORATORIO' || !profilo.laboratorio_id) return;
+  const { data } = await sb.from('laboratori').select('nome, logo').eq('id', profilo.laboratorio_id).maybeSingle();
+  if(!data || !data.logo) return;
+  document.querySelectorAll('.brand').forEach(b => { b.innerHTML = `<img src="${escH(data.logo)}" alt="${escH(data.nome)}" style="max-height:34px;max-width:160px;vertical-align:middle;">`; });
+}
+async function mostraTestiDaAccettare(){
+  const { data } = await sb.from('testi_legali').select('tipo, testo, versione');
+  const t = Object.fromEntries((data || []).map(x => [x.tipo, x.testo]));
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:1000;padding:20px;';
+  wrap.innerHTML = `<div class="box" style="width:720px;max-width:100%;max-height:88vh;display:flex;flex-direction:column;">
+    <h1>Condizioni del servizio</h1><p class="sub">Per continuare a usare Nuovalab leggi e accetta i testi qui sotto.</p>
+    <div style="overflow-y:auto;flex:1;border:1px solid var(--line);border-radius:8px;padding:16px;font-size:13px;line-height:1.55;white-space:pre-wrap;">${t.condizioni ? '<b>Condizioni di servizio</b>\n\n' + escH(t.condizioni) + '\n\n' : ''}${t.privacy ? '<b>Informativa privacy</b>\n\n' + escH(t.privacy) : ''}</div>
+    <label style="display:flex;gap:8px;align-items:center;margin:14px 0;font-size:13.5px;"><input type="checkbox" id="testi-ok"> Ho letto e accetto le condizioni di servizio e l'informativa privacy</label>
+    <button class="btn" id="testi-accetta">Accetta e continua</button><div class="msg" id="testi-msg"></div></div>`;
+  document.body.appendChild(wrap);
+  document.getElementById('testi-accetta').onclick = async () => {
+    if(!document.getElementById('testi-ok').checked){ mostraMsg('testi-msg', 'Spunta la casella per accettare.', 'error'); return; }
+    const { error } = await sb.rpc('accetta_testi');
+    if(error){ mostraMsg('testi-msg', 'Errore: ' + error.message, 'error'); return; }
+    wrap.remove();
+  };
+}
+
+/* ---------- ADMIN: COLLEGAMENTI LABORATORI ↔ STUDI (diretti, senza richieste) ---------- */
+async function renderCollegamentiAdmin(){
+  const content = document.getElementById('content');
+  content.innerHTML = `<h1>Collegamenti</h1><p class="lead">Spunta quali studi lavorano con quale laboratorio. Il collegamento è subito attivo, senza richieste da accettare. Togliere la spunta lo rimuove (i lavori già fatti restano).</p><div id="matrice-coll"><p class="empty">Caricamento…</p></div><div class="msg" id="coll-msg"></div>`;
+  const [{ data: labs }, { data: studi }, { data: coll }] = await Promise.all([
+    sb.from('laboratori').select('id, nome, licenze_studio').eq('attivo', true).is('cliente_id', null).order('nome'),
+    sb.from('studi').select('id, nome, sigla').eq('attivo', true).is('cliente_id', null).order('nome'),
+    sb.from('collegamenti').select('id, studio_id, laboratorio_id, stato')]);
+  const el = document.getElementById('matrice-coll');
+  if(!labs || !labs.length || !studi || !studi.length){ el.innerHTML = '<p class="empty">Servono almeno un laboratorio e uno studio.</p>'; return; }
+  const trova = (s, l) => (coll || []).find(c => c.studio_id === s && c.laboratorio_id === l);
+  const attivi = l => (coll || []).filter(c => c.laboratorio_id === l && c.stato === 'attivo').length;
+  el.innerHTML = `<div style="overflow-x:auto;"><table><thead><tr><th>Studio</th>${labs.map(l => `<th style="text-align:center;">${escH(l.nome)}<br><span style="text-transform:none;font-weight:400;">${attivi(l.id)} su ${l.licenze_studio}</span></th>`).join('')}</tr></thead><tbody>
+    ${studi.map(s => `<tr><td><b>${escH(s.nome)}</b> <span style="color:var(--muted);font-size:12px;">${escH(s.sigla)}</span></td>${labs.map(l => { const c = trova(s.id, l.id);
+      return `<td style="text-align:center;"><input type="checkbox" style="width:20px;height:20px;cursor:pointer;" data-s="${s.id}" data-l="${l.id}" ${c && c.stato === 'attivo' ? 'checked' : ''} title="${c && c.stato !== 'attivo' && c.stato !== 'rimosso' ? 'Richiesta in attesa: spunta per attivarla' : ''}">${c && c.stato.startsWith('in_attesa') ? '<br><span style="font-size:11px;color:var(--accent-dark);">in attesa</span>' : ''}</td>`; }).join('')}</tr>`).join('')}
+  </tbody></table></div><p style="font-size:12px;color:var(--muted);">Sotto ogni laboratorio: studi collegati su studi possibili (lo cambi in «Laboratori», colonna Licenze).</p>`;
+  el.querySelectorAll('input[data-s]').forEach(cb => cb.onchange = async () => {
+    const c = trova(cb.dataset.s, cb.dataset.l);
+    let error;
+    if(cb.checked){
+      if(c) ({ error } = await sb.from('collegamenti').update({ stato: 'attivo', attivato_at: new Date().toISOString() }).eq('id', c.id));
+      else ({ error } = await sb.from('collegamenti').insert({ studio_id: cb.dataset.s, laboratorio_id: cb.dataset.l, stato: 'attivo', iniziato_da: 'LABORATORIO', attivato_at: new Date().toISOString() }));
+    } else if(c) ({ error } = await sb.from('collegamenti').update({ stato: 'rimosso' }).eq('id', c.id));
+    if(error){ cb.checked = !cb.checked; mostraMsg('coll-msg', 'Errore: ' + error.message, 'error'); return; }
+    renderCollegamentiAdmin();
+  });
+}
+
+/* ---------- LABORATORIO CLIENTE: I MIEI STUDI, MEDICI E ACCESSI ---------- */
+async function renderStudiCliente(profilo){
+  const content = document.getElementById('content');
+  content.innerHTML = `<h1>I miei studi</h1>
+    <p class="lead">Gli studi dentistici che lavorano con te. Li crei qui: si collegano subito al tuo laboratorio. Studi usati: <b>${CLIENTE.studi || 0} su ${CLIENTE.max_studi}</b>.</p>
+    <div class="card"><h3 style="margin-top:0;font-size:13.5px;">+ Nuovo studio</h3>
+      <div class="form-grid"><div class="field"><label>Nome dello studio</label><input id="cs-nome" placeholder="Es. Studio dentistico Rossi"></div>
+      <div class="field"><label>Email dello studio</label><input id="cs-email" type="email"></div><div></div></div>
+      <button class="btn" id="cs-crea" style="margin-top:8px;">Crea studio</button><div class="msg" id="cs-msg"></div></div>
+    <div id="cs-elenco"><p class="empty">Caricamento…</p></div>`;
+  document.getElementById('cs-crea').onclick = async () => {
+    const nome = document.getElementById('cs-nome').value.trim(), email = document.getElementById('cs-email').value.trim().toLowerCase();
+    if(!nome || !email){ mostraMsg('cs-msg', 'Scrivi nome ed email dello studio.', 'error'); return; }
+    if((CLIENTE.studi || 0) >= CLIENTE.max_studi){ mostraMsg('cs-msg', `Hai raggiunto il numero di studi del tuo abbonamento (${CLIENTE.max_studi}). Contatta Nuovalab per aggiungerne.`, 'error'); return; }
+    const { data: sigla } = await sb.rpc('sigla_libera', { p_nome: nome });
+    const { error } = await sb.from('studi').insert({ nome, email, sigla, licenze_laboratorio: 1, attivo: true });
+    if(error){ mostraMsg('cs-msg', /licenz|Numero massimo/i.test(error.message) ? 'Hai raggiunto il numero di studi del tuo abbonamento.' : /unique|duplicate/i.test(error.message) ? 'Questa email è già usata da un altro studio.' : 'Errore: ' + error.message, 'error'); return; }
+    CLIENTE.studi = (CLIENTE.studi || 0) + 1;
+    renderStudiCliente(profilo);
+  };
+  const [{ data: studi }, { data: medici }] = await Promise.all([
+    sb.from('studi').select('id, nome, sigla, email, attivo').order('nome'),
+    sb.from('medici').select('id, nome, email, studio_id, numero_iscrizione_completo, attivo').order('nome')]);
+  let utenti = [];
+  try { utenti = (await chiamaFunzione({ action: 'utenti_mio_cliente' })).utenti || []; } catch(e){}
+  const el = document.getElementById('cs-elenco');
+  if(!studi || !studi.length){ el.innerHTML = '<p class="empty">Nessuno studio ancora. Crea il primo qui sopra.</p>'; return; }
+  const accessoDi = (campo, id) => utenti.filter(u => u[campo] === id);
+  const rigaUtente = u => `<span style="display:inline-flex;gap:6px;align-items:center;margin:2px 8px 2px 0;font-size:12.5px;">🔑 ${escH(u.email)} ${u.attivo ? (u.primo_accesso ? '<span class="badge off">primo accesso da fare</span>' : '') : '<span class="badge off">disattivato</span>'}
+     <button class="btn secondary" style="padding:3px 8px;font-size:12px;" data-reset="${u.id}" data-email="${escH(u.email)}">Nuova password</button>
+     <button class="btn secondary" style="padding:3px 8px;font-size:12px;" data-attiva="${u.id}" data-stato="${u.attivo ? 'false' : 'true'}">${u.attivo ? 'Disattiva' : 'Riattiva'}</button></span>`;
+  el.innerHTML = studi.map(s => { const ms = (medici || []).filter(m => m.studio_id === s.id);
+    return `<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;"><h3 style="margin:0;font-size:15px;">${escH(s.nome)} <span style="color:var(--muted);font-size:12px;">${escH(s.sigla)} · ${escH(s.email)}</span></h3>
+      ${accessoDi('studio_id', s.id).length ? '' : `<button class="btn secondary" data-acc-studio="${s.id}">+ Accesso per lo studio</button>`}</div>
+      <div style="margin:6px 0 10px;">${accessoDi('studio_id', s.id).map(rigaUtente).join('')}</div>
+      <table><thead><tr><th>Medico</th><th>Iscr. albo</th><th>Accesso</th></tr></thead><tbody>
+      ${ms.map(m => `<tr><td>${escH(m.nome)}<br><span style="color:var(--muted);font-size:12px;">${escH(m.email)}</span></td><td>${escH(m.numero_iscrizione_completo)}</td>
+        <td>${accessoDi('medico_id', m.id).map(rigaUtente).join('') || `<button class="btn secondary" data-acc-medico="${m.id}" data-email="${escH(m.email)}">+ Accesso</button>`}</td></tr>`).join('') || '<tr><td colspan="3" class="empty">Nessun medico</td></tr>'}
+      </tbody></table>
+      <div class="form-grid" style="margin-top:10px;"><div class="field"><label>Nuovo medico: nome e cognome</label><input data-m-nome="${s.id}"></div>
+        <div class="field"><label>Email</label><input type="email" data-m-email="${s.id}"></div>
+        <div class="field"><label>Albo: provincia (2 lettere) e numero</label><div style="display:flex;gap:6px;"><input data-m-prov="${s.id}" maxlength="2" style="width:60px;text-transform:uppercase;"><input data-m-num="${s.id}"></div></div></div>
+      <button class="btn secondary" data-agg-medico="${s.id}">+ Aggiungi medico</button><div class="msg" id="msg-${s.id}"></div></div>`; }).join('');
+  const chiediAccesso = async (corpo, emailProposta, msgId) => {
+    const email = prompt('Email per l\'accesso', emailProposta || ''); if(!email) return;
+    const password = prompt('Password iniziale (almeno 8 caratteri): la persona la cambierà al primo accesso'); if(!password) return;
+    try { await chiamaFunzione({ ...corpo, email, password }); alert(`Accesso creato.\nComunica alla persona:\nindirizzo: ${location.origin}\nemail: ${email}\npassword iniziale: ${password}`); renderStudiCliente(profilo); }
+    catch(e){ alert(e.message); }
+  };
+  el.querySelectorAll('[data-acc-studio]').forEach(b => b.onclick = () => chiediAccesso({ action: 'accesso_studio', ruolo: 'STUDIO', studio_id: b.dataset.accStudio }, studi.find(s => s.id === b.dataset.accStudio)?.email));
+  el.querySelectorAll('[data-acc-medico]').forEach(b => b.onclick = () => chiediAccesso({ action: 'accesso_studio', ruolo: 'MEDICO', medico_id: b.dataset.accMedico }, b.dataset.email));
+  el.querySelectorAll('[data-reset]').forEach(b => b.onclick = async () => {
+    const pw = prompt(`Nuova password per ${b.dataset.email} (almeno 8 caratteri): la cambierà al primo accesso`); if(!pw) return;
+    try { await chiamaFunzione({ action: 'reset_mio_utente', id: b.dataset.reset, newPassword: pw }); alert('Password reimpostata.'); } catch(e){ alert(e.message); }
+  });
+  el.querySelectorAll('[data-attiva]').forEach(b => b.onclick = async () => {
+    try { await chiamaFunzione({ action: 'attiva_utente', id: b.dataset.attiva, attivo: b.dataset.stato === 'true' }); renderStudiCliente(profilo); } catch(e){ alert(e.message); }
+  });
+  el.querySelectorAll('[data-agg-medico]').forEach(b => b.onclick = async () => {
+    const id = b.dataset.aggMedico, v = k => el.querySelector(`[data-m-${k}="${id}"]`).value.trim();
+    const nome = v('nome'), email = v('email').toLowerCase(), prov = v('prov').toUpperCase(), num = v('num');
+    if(!nome || !email || !/^[A-Z]{2}$/.test(prov) || !num){ mostraMsg('msg-' + id, 'Servono nome, email, provincia (2 lettere) e numero d\'albo.', 'error'); return; }
+    const { error } = await sb.from('medici').insert({ studio_id: id, nome, email, provincia_albo: prov, numero_albo: num, attivo: true });
+    if(error){ mostraMsg('msg-' + id, /unique|duplicate/i.test(error.message) ? 'Questa email è già usata da un altro medico.' : 'Errore: ' + error.message, 'error'); return; }
+    renderStudiCliente(profilo);
+  });
+}
+
+/* ---------- LABORATORIO CLIENTE: LOGO, BACKUP, ABBONAMENTO ---------- */
+async function renderAccountCliente(profilo){
+  const content = document.getElementById('content');
+  const { data: lab } = await sb.from('laboratori').select('nome, logo').eq('id', profilo.laboratorio_id).maybeSingle();
+  const scade = CLIENTE.scadenza ? Math.ceil((new Date(CLIENTE.scadenza + 'T23:59:59') - new Date()) / 864e5) : null;
+  content.innerHTML = `<h1>Logo, backup e abbonamento</h1><p class="lead">${escH(lab?.nome || '')}</p>
+    <div class="card"><h3 style="margin-top:0;font-size:13.5px;">Abbonamento</h3>
+      <p style="margin:0 0 6px;">Scadenza: <b>${CLIENTE.scadenza ? fmtData(CLIENTE.scadenza) : 'nessuna'}</b>${scade != null && scade <= 30 ? ` <span class="badge off" style="background:var(--block-soft);color:var(--block);">tra ${scade} giorni</span>` : ''}</p>
+      <p style="margin:0;">Studi: <b>${CLIENTE.studi || 0} su ${CLIENTE.max_studi}</b></p>
+      <p style="font-size:12px;color:var(--muted);margin:8px 0 0;">Per rinnovare o aggiungere studi contatta Nuovalab.</p></div>
+    <div class="card"><h3 style="margin-top:0;font-size:13.5px;">Logo del laboratorio</h3>
+      <p style="font-size:12px;color:var(--muted);margin-top:-6px;">Compare in alto nell'app e sui documenti (prescrizioni, dichiarazioni…). PNG o JPG.</p>
+      <div id="logo-anteprima" style="margin:8px 0 12px;">${lab?.logo ? `<img src="${escH(lab.logo)}" alt="" style="max-height:80px;max-width:260px;border:1px solid var(--line);border-radius:6px;padding:6px;background:#fff;">` : '<span class="empty" style="padding:0;">Nessun logo</span>'}</div>
+      <input type="file" id="logo-file" accept="image/png,image/jpeg"> ${lab?.logo ? '<button class="btn secondary" id="logo-togli">Togli logo</button>' : ''}<div class="msg" id="logo-msg"></div></div>
+    <div class="card"><h3 style="margin-top:0;font-size:13.5px;">Backup dei dati</h3>
+      <p style="font-size:12px;color:var(--muted);margin-top:-6px;">Scarica una copia di tutti i dati del tuo laboratorio: studi, medici, lavori, listini, impostazioni e messaggi. Il file contiene solo i tuoi dati. I file allegati ai lavori non sono compresi.</p>
+      <button class="btn" id="bk-json">Scarica backup completo (.json)</button> <button class="btn secondary" id="bk-csv">Scarica i lavori (Excel, .csv)</button><div class="msg" id="bk-msg"></div></div>`;
+  document.getElementById('logo-file').onchange = async e => {
+    const f = e.target.files[0]; if(!f) return;
+    try {
+      const url = await ridimensionaLogo(f);
+      const { error } = await sb.rpc('imposta_logo', { p_logo: url });
+      if(error) throw error;
+      mostraMsg('logo-msg', 'Logo salvato.', 'ok'); renderAccountCliente(profilo); mostraLogoLab(profilo);
+    } catch(err){ mostraMsg('logo-msg', 'Errore: ' + (err.message || err), 'error'); }
+  };
+  const tl = document.getElementById('logo-togli');
+  if(tl) tl.onclick = async () => { await sb.rpc('imposta_logo', { p_logo: null }); location.reload(); };
+  document.getElementById('bk-json').onclick = () => scaricaBackup(profilo, 'json');
+  document.getElementById('bk-csv').onclick = () => scaricaBackup(profilo, 'csv');
+}
+function ridimensionaLogo(file){
+  return new Promise((ok, ko) => {
+    const img = new Image(), r = new FileReader();
+    r.onload = () => { img.src = r.result; };
+    img.onload = () => {
+      const max = 600, k = Math.min(1, max / Math.max(img.width, img.height));
+      const c = document.createElement('canvas'); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      const png = c.toDataURL('image/png');
+      ok(png.length < 650000 ? png : c.toDataURL('image/jpeg', 0.85));
+    };
+    img.onerror = () => ko(new Error('Immagine non leggibile'));
+    r.readAsDataURL(file);
+  });
+}
+async function leggiTutto(tabella, filtro){
+  const out = [];
+  for(let da = 0; ; da += 1000){
+    let q = sb.from(tabella).select('*').range(da, da + 999);
+    if(filtro) q = filtro(q);
+    const { data, error } = await q;
+    if(error) throw new Error(`${tabella}: ${error.message}`);
+    out.push(...(data || []));
+    if(!data || data.length < 1000) break;
+  }
+  return out;
+}
+async function scaricaBackup(profilo, formato){
+  mostraMsg('bk-msg', 'Preparo il file…', 'ok');
+  const lab = profilo.laboratorio_id, mio = q => q.eq('laboratorio_id', lab);
+  try {
+    const salva = (nome, testo, tipo) => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([testo], { type: tipo })); a.download = nome; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 60000); };
+    const oggi = new Date().toISOString().slice(0, 10);
+    const lavorazioni = await leggiTutto('lavorazioni', mio);
+    if(formato === 'csv'){
+      const studi = Object.fromEntries((await leggiTutto('studi')).map(s => [s.id, s.nome]));
+      const col = ['id','studio','cognome_paziente','nome_paziente','tipo_macro','tipo_micro','elementi','colore','data_consegna_richiesta','data_consegna_confermata','stato_lab','stato_studio','created_at'];
+      const cella = v => { const t = Array.isArray(v) ? v.join(' ') : String(v ?? ''); return /[";\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
+      const righe = [col.join(';'), ...lavorazioni.map(j => col.map(c => cella(c === 'studio' ? studi[j.studio_id] : j[c])).join(';'))];
+      salva(`lavori-${oggi}.csv`, '﻿' + righe.join('\r\n'), 'text/csv;charset=utf-8');
+    } else {
+      const ids = lavorazioni.map(j => j.id), perLavori = q => q.in('lavorazione_id', ids.length ? ids : ['-']);
+      const dati = { creato: new Date().toISOString(), laboratorio: (await leggiTutto('laboratori', q => q.eq('id', lab))).map(({ logo, ...x }) => x),
+        studi: await leggiTutto('studi'), collegamenti: await leggiTutto('collegamenti', mio), medici: await leggiTutto('medici'), lavorazioni,
+        materiali_lavorazione: await leggiTutto('materiali_lavorazione', perLavori), allegati: await leggiTutto('allegati', perLavori),
+        segnalazioni: await leggiTutto('segnalazioni', perLavori), firme: await leggiTutto('firme', perLavori),
+        listino_base: await leggiTutto('listino_base', mio), listino_prezzi: await leggiTutto('listino_prezzi', mio), dati_fabbricante: await leggiTutto('dati_fabbricante', mio),
+        tipi_lavoro_macro: await leggiTutto('tipi_lavoro_macro', mio), colori: await leggiTutto('colori', mio), materiali_catalogo: await leggiTutto('materiali_catalogo', mio),
+        odontotecnici: await leggiTutto('odontotecnici', mio), tipi_problema: await leggiTutto('tipi_problema', mio) };
+      const macro = dati.tipi_lavoro_macro.map(m => m.id);
+      dati.tipi_lavoro_micro = await leggiTutto('tipi_lavoro_micro', q => q.in('macro_id', macro.length ? macro : ['00000000-0000-0000-0000-000000000000']));
+      dati.canali_chat = await leggiTutto('canali_chat', mio);
+      const canali = dati.canali_chat.map(c => c.id);
+      dati.messaggi = canali.length ? await leggiTutto('messaggi', q => q.in('canale_id', canali)) : [];
+      salva(`backup-nuovalab-${oggi}.json`, JSON.stringify(dati, null, 1), 'application/json');
+    }
+    mostraMsg('bk-msg', 'File scaricato.', 'ok');
+  } catch(e){ mostraMsg('bk-msg', 'Errore: ' + e.message, 'error'); }
 }
 
 /* ---------- LABORATORIO: STUDI COLLEGATI + RICHIESTE + RICERCA ---------- */
@@ -2391,7 +2634,9 @@ async function apriDocumento(tipo, jobId){
   const requisiti = requisitiDocumento(tipo, job);
   if(!requisiti.every(r => r.ok)){ mostraDatiMancanti(requisiti); return; }
   const { data: fabbricante } = await sb.from('dati_fabbricante').select('*').eq('laboratorio_id', job.laboratorio_id).maybeSingle();
-  const html = generaHtmlDocumento(tipo, job, fabbricante);
+  const { data: labDoc } = await sb.from('laboratori').select('logo').eq('id', job.laboratorio_id).maybeSingle();
+  let html = generaHtmlDocumento(tipo, job, fabbricante);
+  if(labDoc && labDoc.logo) html = `<div style="margin-bottom:14px;"><img src="${escH(labDoc.logo)}" alt="" style="max-height:70px;max-width:240px;"></div>` + html;
   mostraAnteprimaDocumento(TITOLI_DOC[tipo], html);
 }
 
