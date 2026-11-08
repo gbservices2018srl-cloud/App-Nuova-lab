@@ -3,7 +3,7 @@ self.addEventListener('push', event => {
   try { data = event.data.json(); } catch(e) {}
   event.waitUntil(
     self.registration.showNotification(data.title || 'Nuovalab', {
-      body: data.body || '',
+      body: data.body || '', tag: data.tag || undefined, data: { url: data.url || '/' },
       icon: 'https://raw.githubusercontent.com/twitter/twemoji/master/assets/72x72/1f9b7.png',
       badge: 'https://raw.githubusercontent.com/twitter/twemoji/master/assets/72x72/1f9b7.png'
     })
@@ -17,7 +17,7 @@ self.addEventListener('notificationclick', event => {
       for (const client of windowClients) {
         if ('focus' in client) return client.focus();
       }
-      if (clients.openWindow) return clients.openWindow('/');
+      if (clients.openWindow) return clients.openWindow((event.notification.data && event.notification.data.url) || '/');
     })
   );
 });

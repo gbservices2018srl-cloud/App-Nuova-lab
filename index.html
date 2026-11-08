@@ -1986,6 +1986,7 @@ async function caricaLavorazioniLab(profilo){
           <td style="white-space:nowrap;">${dataInvioHtml(j.created_at)}</td>
           <td>${j.studi?.nome || '—'}
             <div style="margin-top:4px;white-space:nowrap;">
+              <button class="btn secondary" data-chat-studio="${j.id}" style="font-size:11px;padding:3px 7px;" title="Scrivi allo studio di questa pratica">💬 Studio</button>
               <button class="btn secondary" data-chat-medico="${j.id}" style="font-size:11px;padding:3px 7px;" title="Scrivi al medico prescrittore">💬 ${escH(j.medici?.nome || 'Medico')}</button>
             </div></td>
           <td>${j.tipo_macro} › ${j.tipo_micro}${elementiHtml(j)}
@@ -2035,8 +2036,13 @@ async function caricaLavorazioniLab(profilo){
     btn.onclick = () => {
       const j = data.find(x => x.id === btn.dataset.chatMedico);
       if(!j || !j.medico_id){ alert('Medico prescrittore non disponibile per questa pratica.'); return; }
-      document.querySelectorAll('#sidebar-nav .nav-btn').forEach(b => b.classList.toggle('active', /Messaggi/i.test(b.textContent)));
-      renderMessaggiLab(profilo, { medico_id: j.medico_id, studio_id: j.studio_id, prefill: `Riguardo alla pratica ${j.id}: ` });
+      apriChatPratica(profilo, 'medico', j, j.medici?.nome || 'Medico');
+    };
+  });
+  el.querySelectorAll('[data-chat-studio]').forEach(btn => {
+    btn.onclick = () => {
+      const j = data.find(x => x.id === btn.dataset.chatStudio);
+      if(j) apriChatPratica(profilo, 'studio', j, j.studi?.nome || 'Studio');
     };
   });
   el.querySelectorAll('[data-set-odt]').forEach(sel => {
@@ -3003,6 +3009,24 @@ async function ottieniCanale(tipo, laboratorioId, studioId, medicoId){
   return nuovo.id;
 }
 
+// Chat aperta dalla Dashboard, sopra la lista: con lo studio o con il medico della pratica
+async function apriChatPratica(profilo, tipo, j, nome){
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;z-index:999;padding:16px;';
+  wrap.innerHTML = `<div class="box" style="width:620px;max-width:100%;max-height:90vh;overflow:auto;">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:6px;"><h1 style="font-size:16px;margin:0;">💬 ${escH(nome)}</h1><button class="btn secondary" id="chat-pratica-chiudi">✕ Chiudi</button></div>
+    <p class="sub" style="margin-bottom:10px;">Pratica ${escH(j.id)} · ${escH(j.cognome_paziente || '')} ${escH(j.nome_paziente || '')} · ${escH(j.tipo_macro || '')} › ${escH(j.tipo_micro || '')}</p>
+    <div id="chat-pratica"><p class="empty">Apro la conversazione…</p></div></div>`;
+  document.body.appendChild(wrap);
+  const chiudi = () => { wrap.remove(); };
+  wrap.querySelector('#chat-pratica-chiudi').onclick = chiudi;
+  wrap.onclick = e => { if(e.target === wrap) chiudi(); };
+  const canaleId = await ottieniCanale(tipo, profilo.laboratorio_id, tipo === 'studio' ? j.studio_id : null, tipo === 'medico' ? j.medico_id : null);
+  await renderChatThread(canaleId, 'LABORATORIO', wrap.querySelector('#chat-pratica'));
+  const input = wrap.querySelector('#chat-input');
+  if(input){ input.value = `Pratica ${j.id}: `; input.focus(); }
+}
+
 async function renderChatThread(canaleId, mittenteRuolo, container){
   if(!canaleId){ container.innerHTML = `<p class="empty">Impossibile aprire questo canale.</p>`; return; }
 
@@ -3013,7 +3037,7 @@ async function renderChatThread(canaleId, mittenteRuolo, container){
   container.innerHTML = `
     <div style="max-height:400px;overflow-y:auto;border:1px solid var(--line);border-radius:8px;padding:14px;margin-bottom:12px;background:#fff;">
       ${(messaggi && messaggi.length) ? messaggi.map(m => `<div style="margin-bottom:10px;text-align:${m.mittente_ruolo===mittenteRuolo?'right':'left'};">
-        <div style="display:inline-block;background:${m.mittente_ruolo===mittenteRuolo?'var(--accent)':'#eef0f0'};padding:8px 12px;border-radius:10px;font-size:13px;max-width:70%;text-align:left;">${m.testo}</div>
+        <div style="display:inline-block;background:${m.mittente_ruolo===mittenteRuolo?'var(--accent)':'#eef0f0'};padding:8px 12px;border-radius:10px;font-size:13px;max-width:70%;text-align:left;white-space:pre-wrap;">${escH(m.testo)}</div>
         <div style="font-size:10px;color:var(--muted);margin-top:2px;">${new Date(m.created_at).toLocaleString('it-IT')}</div>
       </div>`).join('') : '<p class="empty">Nessun messaggio in questo canale.</p>'}
     </div>
@@ -3023,7 +3047,7 @@ async function renderChatThread(canaleId, mittenteRuolo, container){
     </div>
   `;
   const invia = async () => {
-    const input = document.getElementById('chat-input');
+    const input = container.querySelector('#chat-input');
     const testo = input.value.trim();
     if(!testo) return;
     const { data: { session } } = await sb.auth.getSession();
@@ -3033,12 +3057,12 @@ async function renderChatThread(canaleId, mittenteRuolo, container){
       letto_da_lab: isLab, letto_da_controparte: !isLab
     });
     if(error){ alert('Errore: ' + error.message); return; }
-    inviaNotificaPush(canaleId, mittenteRuolo, testo);
     input.value = '';
     renderChatThread(canaleId, mittenteRuolo, container);
   };
-  document.getElementById('chat-invia').onclick = invia;
-  document.getElementById('chat-input').addEventListener('keydown', e => { if(e.key === 'Enter') invia(); });
+  container.querySelector('#chat-invia').onclick = invia;
+  container.querySelector('#chat-input').addEventListener('keydown', e => { if(e.key === 'Enter') invia(); });
+  const fondo = container.firstElementChild; if(fondo) fondo.scrollTop = fondo.scrollHeight;
   aggiornaBadgeMessaggi(window.PROFILO_CORRENTE);
 }
 
@@ -3267,10 +3291,41 @@ function base64urlToUint8Array(base64url){
   return arr;
 }
 
+const VAPID_CLIENTI = 'BHzYgK9HG-_FNmrZRgi2OSn-N8OUvTSf1DvZYHfSRgAKjj5YxUW73gY7ZNSv08FgUv-LOioKbBs0urTJJyclacg';
 async function renderNotificheBox(profilo){
-  // Le notifiche (anche a telefono chiuso) si attivano una volta sola per tutte le app su appgestione.it
   const box = document.getElementById('notifiche-box');
-  box.innerHTML = `<a class="nav-btn" href="https://appgestione.it/" target="_blank" rel="noopener" style="border:1px solid var(--line);display:block;text-decoration:none;">🔔 Notifiche: attivale su To Smile</a>`;
+  if(!CLIENTE.cliente){
+    // personale To Smile: le notifiche (anche a telefono chiuso) si attivano una volta sola per tutte le app su appgestione.it
+    box.innerHTML = `<a class="nav-btn" href="https://appgestione.it/" target="_blank" rel="noopener" style="border:1px solid var(--line);display:block;text-decoration:none;">🔔 Notifiche: attivale su To Smile</a>`;
+    return;
+  }
+  // laboratori clienti: notifiche direttamente da Nuovalab, una volta per ogni telefono o computer
+  if(!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)){
+    const ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
+    box.innerHTML = `<div style="font-size:12px;color:var(--muted);border:1px solid var(--line);border-radius:8px;padding:8px;">🔔 ${ios ? 'Per le notifiche su iPhone: in Safari tocca Condividi → «Aggiungi alla schermata Home» e apri Nuovalab dall\'icona.' : 'Questo browser non supporta le notifiche.'}</div>`;
+    return;
+  }
+  const reg = await navigator.serviceWorker.register('/sw.js');
+  const sub = await reg.pushManager.getSubscription();
+  if(sub && Notification.permission === 'granted'){
+    const j = sub.toJSON();
+    await sb.from('push_iscrizioni').upsert({ endpoint: j.endpoint, p256dh: j.keys.p256dh, auth: j.keys.auth }, { onConflict: 'endpoint' });
+    box.innerHTML = `<div style="font-size:12px;color:var(--ok);border:1px solid var(--line);border-radius:8px;padding:8px;">🔔 Notifiche attive su questo dispositivo</div>`;
+    return;
+  }
+  if(Notification.permission === 'denied'){ box.innerHTML = `<div style="font-size:12px;color:var(--muted);border:1px solid var(--line);border-radius:8px;padding:8px;">🔔 Notifiche bloccate: riattivale dalle impostazioni del browser per questo sito.</div>`; return; }
+  box.innerHTML = `<button class="nav-btn" id="attiva-notifiche" style="border:1px solid var(--line);display:block;width:100%;">🔔 Attiva le notifiche</button>`;
+  document.getElementById('attiva-notifiche').onclick = async () => {
+    try {
+      if(await Notification.requestPermission() !== 'granted'){ renderNotificheBox(profilo); return; }
+      const b64 = s => { const p = '='.repeat((4 - s.length % 4) % 4); const r = atob((s + p).replace(/-/g, '+').replace(/_/g, '/')); return Uint8Array.from([...r].map(c => c.charCodeAt(0))); };
+      const nuova = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64(VAPID_CLIENTI) });
+      const j = nuova.toJSON();
+      const { error } = await sb.from('push_iscrizioni').upsert({ endpoint: j.endpoint, p256dh: j.keys.p256dh, auth: j.keys.auth }, { onConflict: 'endpoint' });
+      if(error) throw error;
+      renderNotificheBox(profilo);
+    } catch(e){ alert('Non è stato possibile attivare le notifiche: ' + (e.message || e)); }
+  };
 }
 
 async function attivaNotifiche(profilo){
