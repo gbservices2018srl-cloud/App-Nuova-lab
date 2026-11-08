@@ -316,3 +316,14 @@ begin
   return null;
 end $$;
 revoke all on function sigla_libera from anon;
+
+-- correzione: la regola dei medici non deve rileggere gli studi passando dalle regole (giro medici -> studi -> medici)
+create or replace function studio_del_mio_cliente(p_studio uuid) returns boolean language sql stable security definer set search_path = public as $$
+  select mio_cliente_id() is not null and exists (select 1 from studi where id = p_studio and cliente_id = mio_cliente_id())
+$$;
+drop policy if exists medici_write on medici;
+create policy medici_write on medici for insert with check (
+  mio_ruolo() = 'STUDIO' or (mio_ruolo() = 'LABORATORIO' and studio_del_mio_cliente(studio_id)));
+drop policy if exists medici_update on medici;
+create policy medici_update on medici for update using (
+  (mio_ruolo() = 'STUDIO' and studio_id = mio_studio_id()) or (mio_ruolo() = 'LABORATORIO' and studio_del_mio_cliente(studio_id)));
