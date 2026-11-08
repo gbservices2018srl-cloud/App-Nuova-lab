@@ -795,30 +795,56 @@ async function mostraTestiDaAccettare(){
   };
 }
 
-/* ---------- ADMIN: COLLEGAMENTI LABORATORI ↔ STUDI (diretti, senza richieste) ---------- */
+/* ---------- MEDICI ESCLUSI: di base tutti i medici di uno studio collegato lavorano con quel laboratorio ---------- */
+async function mediciEsclusi(labId){
+  if(!labId) return new Set();
+  const { data, error } = await sb.from('medici_esclusi').select('medico_id').eq('laboratorio_id', labId);
+  return new Set(error ? [] : (data || []).map(x => x.medico_id));
+}
+
+/* ---------- ADMIN: COLLEGAMENTI (un laboratorio alla volta: studi e, dentro, i loro medici) ---------- */
+let __collLab = null;
 async function renderCollegamentiAdmin(){
   const content = document.getElementById('content');
-  content.innerHTML = `<h1>Collegamenti</h1><p class="lead">Spunta quali studi lavorano con quale laboratorio. Il collegamento è subito attivo, senza richieste da accettare. Togliere la spunta lo rimuove (i lavori già fatti restano).</p><div id="matrice-coll"><p class="empty">Caricamento…</p></div><div class="msg" id="coll-msg"></div>`;
-  const [{ data: labs }, { data: studi }, { data: coll }] = await Promise.all([
+  const [{ data: labs }, { data: studi }, { data: medici }, { data: coll }] = await Promise.all([
     sb.from('laboratori').select('id, nome, licenze_studio').eq('attivo', true).is('cliente_id', null).order('nome'),
     sb.from('studi').select('id, nome, sigla').eq('attivo', true).is('cliente_id', null).order('nome'),
+    sb.from('medici').select('id, nome, studio_id').eq('attivo', true).order('nome'),
     sb.from('collegamenti').select('id, studio_id, laboratorio_id, stato')]);
-  const el = document.getElementById('matrice-coll');
-  if(!labs || !labs.length || !studi || !studi.length){ el.innerHTML = '<p class="empty">Servono almeno un laboratorio e uno studio.</p>'; return; }
-  const trova = (s, l) => (coll || []).find(c => c.studio_id === s && c.laboratorio_id === l);
-  const attivi = l => (coll || []).filter(c => c.laboratorio_id === l && c.stato === 'attivo').length;
-  el.innerHTML = `<div style="overflow-x:auto;"><table><thead><tr><th>Studio</th>${labs.map(l => `<th style="text-align:center;">${escH(l.nome)}<br><span style="text-transform:none;font-weight:400;">${attivi(l.id)} su ${l.licenze_studio}</span></th>`).join('')}</tr></thead><tbody>
-    ${studi.map(s => `<tr><td><b>${escH(s.nome)}</b> <span style="color:var(--muted);font-size:12px;">${escH(s.sigla)}</span></td>${labs.map(l => { const c = trova(s.id, l.id);
-      return `<td style="text-align:center;"><input type="checkbox" style="width:20px;height:20px;cursor:pointer;" data-s="${s.id}" data-l="${l.id}" ${c && c.stato === 'attivo' ? 'checked' : ''} title="${c && c.stato !== 'attivo' && c.stato !== 'rimosso' ? 'Richiesta in attesa: spunta per attivarla' : ''}">${c && c.stato.startsWith('in_attesa') ? '<br><span style="font-size:11px;color:var(--accent-dark);">in attesa</span>' : ''}</td>`; }).join('')}</tr>`).join('')}
-  </tbody></table></div><p style="font-size:12px;color:var(--muted);">Sotto ogni laboratorio: studi collegati su studi possibili (lo cambi in «Laboratori», colonna Licenze).</p>`;
-  el.querySelectorAll('input[data-s]').forEach(cb => cb.onchange = async () => {
-    const c = trova(cb.dataset.s, cb.dataset.l);
+  if(!labs || !labs.length || !studi || !studi.length){ content.innerHTML = '<h1>Collegamenti</h1><p class="empty">Servono almeno un laboratorio e uno studio.</p>'; return; }
+  if(!__collLab || !labs.some(l => l.id === __collLab)) __collLab = labs[0].id;
+  const lab = labs.find(l => l.id === __collLab);
+  const esclusi = await mediciEsclusi(lab.id);
+  const trova = s => (coll || []).find(c => c.studio_id === s && c.laboratorio_id === lab.id);
+  const attiviDi = l => (coll || []).filter(c => c.laboratorio_id === l && c.stato === 'attivo').length;
+  const chip = (on, attr, testo) => `<button ${attr} style="all:unset;cursor:pointer;font-size:12.5px;padding:3px 10px;border-radius:999px;margin:3px 4px 0 0;border:1px solid ${on ? 'var(--ok)' : 'var(--line)'};background:${on ? 'var(--ok-soft)' : '#fff'};color:${on ? 'var(--ok)' : 'var(--muted)'};${on ? '' : 'text-decoration:line-through;'}">${on ? '✓ ' : ''}${testo}</button>`;
+  content.innerHTML = `<h1>Collegamenti</h1>
+    <p class="lead">Scegli il laboratorio, poi spunta gli studi che lavorano con lui: il collegamento è subito attivo. Sotto ogni studio collegato ci sono i suoi medici: tocca un medico per escluderlo o riammetterlo con quel laboratorio.</p>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;">${labs.map(l => `<button class="btn ${l.id === lab.id ? '' : 'secondary'}" data-lab="${l.id}">${escH(l.nome)} · ${attiviDi(l.id)}</button>`).join('')}</div>
+    <div class="card" style="padding:6px 16px;">
+      <p style="font-size:12px;color:var(--muted);margin:8px 0;">${escH(lab.nome)}: ${attiviDi(lab.id)} studi collegati su ${lab.licenze_studio} possibili (lo cambi in «Laboratori», colonna Licenze).</p>
+      ${studi.map(s => { const c = trova(s.id), on = c && c.stato === 'attivo', ms = (medici || []).filter(m => m.studio_id === s.id);
+        return `<div style="display:flex;gap:12px;align-items:flex-start;padding:10px 0;border-top:1px solid var(--line);">
+          <input type="checkbox" style="width:20px;height:20px;margin-top:2px;cursor:pointer;flex:none;" data-studio="${s.id}" ${on ? 'checked' : ''}>
+          <div style="flex:1;min-width:0;"><b>${escH(s.nome)}</b> <span style="color:var(--muted);font-size:12px;">${escH(s.sigla)}</span>${c && c.stato.startsWith('in_attesa') ? ' <span style="font-size:11px;color:var(--accent-dark);">richiesta in attesa: spunta per attivarla</span>' : ''}
+            ${on ? `<div>${ms.length ? ms.map(m => chip(!esclusi.has(m.id), `data-medico="${m.id}" data-on="${!esclusi.has(m.id)}" title="${esclusi.has(m.id) ? 'Escluso: tocca per riammetterlo' : 'Tocca per escluderlo da questo laboratorio'}"`, escH(m.nome))).join('') : '<span style="font-size:12px;color:var(--muted);">Nessun medico in questo studio</span>'}</div>` : ''}</div></div>`; }).join('')}
+    </div><div class="msg" id="coll-msg"></div>`;
+  content.querySelectorAll('[data-lab]').forEach(b => b.onclick = () => { __collLab = b.dataset.lab; renderCollegamentiAdmin(); });
+  content.querySelectorAll('input[data-studio]').forEach(cb => cb.onchange = async () => {
+    const c = trova(cb.dataset.studio);
     let error;
     if(cb.checked){
       if(c) ({ error } = await sb.from('collegamenti').update({ stato: 'attivo', attivato_at: new Date().toISOString() }).eq('id', c.id));
-      else ({ error } = await sb.from('collegamenti').insert({ studio_id: cb.dataset.s, laboratorio_id: cb.dataset.l, stato: 'attivo', iniziato_da: 'LABORATORIO', attivato_at: new Date().toISOString() }));
+      else ({ error } = await sb.from('collegamenti').insert({ studio_id: cb.dataset.studio, laboratorio_id: lab.id, stato: 'attivo', iniziato_da: 'LABORATORIO', attivato_at: new Date().toISOString() }));
     } else if(c) ({ error } = await sb.from('collegamenti').update({ stato: 'rimosso' }).eq('id', c.id));
-    if(error){ cb.checked = !cb.checked; mostraMsg('coll-msg', 'Errore: ' + error.message, 'error'); return; }
+    if(error){ cb.checked = !cb.checked; mostraMsg('coll-msg', /licenz|Numero massimo/i.test(error.message) ? `${lab.nome} ha raggiunto il numero di studi possibili: aumentalo in «Laboratori».` : 'Errore: ' + error.message, 'error'); return; }
+    renderCollegamentiAdmin();
+  });
+  content.querySelectorAll('[data-medico]').forEach(b => b.onclick = async () => {
+    const { error } = b.dataset.on === 'true'
+      ? await sb.from('medici_esclusi').insert({ laboratorio_id: lab.id, medico_id: b.dataset.medico })
+      : await sb.from('medici_esclusi').delete().eq('laboratorio_id', lab.id).eq('medico_id', b.dataset.medico);
+    if(error){ mostraMsg('coll-msg', 'Errore: ' + error.message, 'error'); return; }
     renderCollegamentiAdmin();
   });
 }
@@ -1317,6 +1343,14 @@ async function renderNuovoLavoro(profilo){
     content.innerHTML = `<h1>Nuovo lavoro</h1><p class="lead">Nessun medico registrato: aggiungine uno dalla scheda "Team medici" prima di creare un lavoro.</p>`;
     return;
   }
+  // medici che lavorano con il laboratorio scelto (l'amministratore può escluderne alcuni)
+  async function mediciPerLab(){
+    const sel = document.getElementById('nl-medico'); if(!sel) return;
+    const esc = await mediciEsclusi(document.getElementById('nl-laboratorio').value);
+    const ok = medici.filter(m => !esc.has(m.id));
+    sel.innerHTML = ok.length ? ok.map(m => `<option value="${m.id}">${m.nome}</option>`).join('') : `<option value="">Nessun medico abilitato con questo laboratorio</option>`;
+  }
+  setTimeout(() => { mediciPerLab(); const l = document.getElementById('nl-laboratorio'); if(l) l.addEventListener('change', mediciPerLab); }, 0);
 
   content.innerHTML = `
     <h1>Nuovo lavoro</h1>
@@ -1327,7 +1361,7 @@ async function renderNuovoLavoro(profilo){
           <select id="nl-laboratorio">${collegamenti.map(c => `<option value="${c.laboratorio_id}">${c.laboratori.nome}</option>`).join('')}</select>
         </div>
         <div class="field"><label>Medico prescrittore</label>
-          <select id="nl-medico">${medici.map(m => `<option value="${m.id}">${m.nome}</option>`).join('')}</select>
+          <select id="nl-medico"></select>
         </div>
         <div></div>
       </div>
@@ -1762,7 +1796,8 @@ async function renderNuovoLavoroLab(profilo, daDashboard){
 
   let pazientiCorrenti = [];
   async function caricaDatiStudio(studioId){
-    const { data: medici } = await sb.from('medici').select('id, nome').eq('studio_id', studioId).eq('attivo', true);
+    const { data: tutti } = await sb.from('medici').select('id, nome').eq('studio_id', studioId).eq('attivo', true);
+    const escl = await mediciEsclusi(profilo.laboratorio_id), medici = (tutti || []).filter(m => !escl.has(m.id));
     document.getElementById('nll-medico').innerHTML = (medici && medici.length) ? medici.map(m => `<option value="${m.id}">${m.nome}</option>`).join('') : `<option value="">Nessun medico registrato in questo studio</option>`;
 
     const { data: pazienti } = await sb.from('pazienti').select('id, cognome, nome').eq('studio_id', studioId).order('cognome');
@@ -3047,10 +3082,11 @@ async function renderMessaggiLab(profilo, target){
   const elencoEl = document.getElementById('elenco-canali-lab');
   if(!collegamenti || collegamenti.length === 0){ elencoEl.innerHTML = `<p class="empty">Nessuno studio collegato.</p>`; return; }
   let righe = [];
+  const esclChat = await mediciEsclusi(profilo.laboratorio_id);
   for(const c of collegamenti){
     righe.push({ tipo:'studio', label: c.studi.nome, studio_id: c.studio_id, medico_id: null });
     const { data: mediciDelloStudio } = await sb.from('medici').select('id, nome').eq('studio_id', c.studio_id).eq('attivo', true);
-    (mediciDelloStudio||[]).forEach(m => righe.push({ tipo:'medico', label: `↳ ${m.nome}`, studio_id: null, medico_id: m.id }));
+    (mediciDelloStudio||[]).filter(m => !esclChat.has(m.id)).forEach(m => righe.push({ tipo:'medico', label: `↳ ${m.nome}`, studio_id: null, medico_id: m.id }));
   }
   elencoEl.innerHTML = righe.map((r,i) => `<button class="nav-btn" data-canale-idx="${i}" style="text-align:left;">${r.label}</button>`).join('');
   elencoEl.querySelectorAll('[data-canale-idx]').forEach(btn => {
@@ -3100,7 +3136,9 @@ async function renderMessaggiStudio(profilo, prefill){
 async function renderMessaggiMedico(profilo){
   const content = document.getElementById('content');
   const { data: medico } = await sb.from('medici').select('studio_id').eq('id', profilo.medico_id).single();
-  const { data: collegamenti } = await sb.from('collegamenti').select('laboratorio_id, laboratori(nome)').eq('studio_id', medico.studio_id).eq('stato','attivo');
+  const { data: tuttiColl } = await sb.from('collegamenti').select('laboratorio_id, laboratori(nome)').eq('studio_id', medico.studio_id).eq('stato','attivo');
+  const { data: miEsclusi } = await sb.from('medici_esclusi').select('laboratorio_id').eq('medico_id', profilo.medico_id);
+  const no = new Set((miEsclusi || []).map(x => x.laboratorio_id)), collegamenti = (tuttiColl || []).filter(c => !no.has(c.laboratorio_id));
   if(!collegamenti || collegamenti.length === 0){ content.innerHTML = `<h1>Messaggi</h1><p class="lead">Il tuo studio non ha ancora laboratori collegati.</p>`; return; }
   content.innerHTML = `
     <h1>Messaggi</h1>
