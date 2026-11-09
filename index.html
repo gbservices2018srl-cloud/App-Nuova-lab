@@ -1475,6 +1475,11 @@ async function renderNuovoLavoro(profilo){
     const colore = document.getElementById('nl-colore').value;
     const note = document.getElementById('nl-note').value.trim();
 
+    const nomeLab = document.getElementById('nl-laboratorio').selectedOptions[0]?.textContent || 'Il laboratorio';
+    const mancaImpost = [!macroSel.value && 'le categorie di lavoro', macroSel.value && !tipo_micro && 'i tipi di lavoro', !colore && 'i colori'].filter(Boolean);
+    if(mancaImpost.length){
+      mostraMsg('lavoro-msg', `${nomeLab} non ha ancora impostato ${mancaImpost.join(' e ')} (in Impostazioni del laboratorio): finché non lo fa non si può inviare il lavoro. Scrivigli dalla chat.`, 'error'); return;
+    }
     if(!cognome_paziente || !nome_paziente || !medico_id || !data_consegna_richiesta || !tipo_macro || !tipo_micro || !colore){
       mostraMsg('lavoro-msg', 'Compila tutti i campi obbligatori.', 'error'); return;
     }
