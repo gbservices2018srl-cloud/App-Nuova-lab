@@ -3151,16 +3151,30 @@ async function renderMessaggiLab(profilo, target){
   let righe = [];
   const esclChat = await mediciEsclusi(profilo.laboratorio_id);
   for(const c of collegamenti){
-    righe.push({ tipo:'studio', label: c.studi.nome, studio_id: c.studio_id, medico_id: null });
     const { data: mediciDelloStudio } = await sb.from('medici').select('id, nome').eq('studio_id', c.studio_id).eq('attivo', true);
-    (mediciDelloStudio||[]).filter(m => !esclChat.has(m.id)).forEach(m => righe.push({ tipo:'medico', label: `↳ ${m.nome}`, studio_id: null, medico_id: m.id }));
+    const med = (mediciDelloStudio||[]).filter(m => !esclChat.has(m.id));
+    righe.push({ tipo:'studio', label: c.studi.nome, studio_id: c.studio_id, medico_id: null, nMedici: med.length });
+    med.forEach(m => righe.push({ tipo:'medico', label: `↳ ${m.nome}`, studio_id: null, medico_id: m.id, gruppo: c.studio_id }));
   }
-  elencoEl.innerHTML = righe.map((r,i) => `<button class="nav-btn" data-canale-idx="${i}" style="text-align:left;">${r.label}</button>`).join('');
+  // sede chiusa: cliccando si apre la chat dello studio e compaiono i suoi medici
+  elencoEl.innerHTML = righe.map((r,i) => r.tipo === 'studio'
+    ? `<button class="nav-btn" data-canale-idx="${i}" style="text-align:left;display:flex;justify-content:space-between;align-items:center;gap:6px;"><span>${escH(r.label)}</span>${r.nMedici ? `<span data-freccia style="color:var(--muted);font-size:12px;white-space:nowrap;">${r.nMedici} ▸</span>` : ''}</button>`
+    : `<button class="nav-btn" data-canale-idx="${i}" data-gruppo="${r.gruppo}" style="text-align:left;display:none;padding-left:22px;font-size:13.5px;">${escH(r.label)}</button>`).join('');
+  const espandi = (studioId, apri) => {
+    elencoEl.querySelectorAll(`[data-gruppo="${studioId}"]`).forEach(b => b.style.display = apri ? '' : 'none');
+    const i = righe.findIndex(r => r.tipo === 'studio' && r.studio_id === studioId);
+    const f = elencoEl.querySelector(`[data-canale-idx="${i}"] [data-freccia]`);
+    if(f) f.textContent = f.textContent.replace(/[▸▾]/, apri ? '▾' : '▸');
+  };
   elencoEl.querySelectorAll('[data-canale-idx]').forEach(btn => {
     btn.onclick = async (ev, prefill) => {
+      const r = righe[btn.dataset.canaleIdx];
+      if(r.tipo === 'studio'){
+        const aperto = elencoEl.querySelector(`[data-gruppo="${r.studio_id}"]`)?.style.display !== 'none';
+        espandi(r.studio_id, !(aperto && btn.classList.contains('active')));
+      } else espandi(r.gruppo, true);
       elencoEl.querySelectorAll('[data-canale-idx]').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
-      const r = righe[btn.dataset.canaleIdx];
       const canaleId = await ottieniCanale(r.tipo, profilo.laboratorio_id, r.studio_id, r.medico_id);
       await renderChatThread(canaleId, 'LABORATORIO', document.getElementById('chat-container'));
       if(typeof prefill === 'string'){
