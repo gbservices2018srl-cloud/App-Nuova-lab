@@ -806,21 +806,23 @@ async function mediciEsclusi(labId){
 let __collLab = null;
 async function renderCollegamentiAdmin(){
   const content = document.getElementById('content');
-  const [{ data: labs }, { data: studi }, { data: medici }, { data: coll }] = await Promise.all([
-    sb.from('laboratori').select('id, nome, licenze_studio').eq('attivo', true).is('cliente_id', null).order('nome'),
-    sb.from('studi').select('id, nome, sigla').eq('attivo', true).is('cliente_id', null).order('nome'),
+  let [{ data: labs }, { data: studi }, { data: medici }, { data: coll }] = await Promise.all([
+    sb.from('laboratori').select('id, nome, licenze_studio, cliente_id').eq('attivo', true).order('nome'),
+    sb.from('studi').select('id, nome, sigla, cliente_id').eq('attivo', true).order('nome'),
     sb.from('medici').select('id, nome, studio_id').eq('attivo', true).order('nome'),
     sb.from('collegamenti').select('id, studio_id, laboratorio_id, stato')]);
   if(!labs || !labs.length || !studi || !studi.length){ content.innerHTML = '<h1>Collegamenti</h1><p class="empty">Servono almeno un laboratorio e uno studio.</p>'; return; }
   if(!__collLab || !labs.some(l => l.id === __collLab)) __collLab = labs[0].id;
   const lab = labs.find(l => l.id === __collLab);
+  const studiTutti = studi;
+  studi = studiTutti.filter(s => !s.cliente_id || s.cliente_id === lab.cliente_id); // studi To Smile + quelli del cliente
   const esclusi = await mediciEsclusi(lab.id);
   const trova = s => (coll || []).find(c => c.studio_id === s && c.laboratorio_id === lab.id);
   const attiviDi = l => (coll || []).filter(c => c.laboratorio_id === l && c.stato === 'attivo').length;
   const chip = (on, attr, testo) => `<button ${attr} style="all:unset;cursor:pointer;font-size:12.5px;padding:3px 10px;border-radius:999px;margin:3px 4px 0 0;border:1px solid ${on ? 'var(--ok)' : 'var(--line)'};background:${on ? 'var(--ok-soft)' : '#fff'};color:${on ? 'var(--ok)' : 'var(--muted)'};${on ? '' : 'text-decoration:line-through;'}">${on ? '✓ ' : ''}${testo}</button>`;
   content.innerHTML = `<h1>Collegamenti</h1>
     <p class="lead">Scegli il laboratorio, poi spunta gli studi che lavorano con lui: il collegamento è subito attivo. Sotto ogni studio collegato ci sono i suoi medici: tocca un medico per escluderlo o riammetterlo con quel laboratorio.</p>
-    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;">${labs.map(l => `<button class="btn ${l.id === lab.id ? '' : 'secondary'}" data-lab="${l.id}">${escH(l.nome)} · ${attiviDi(l.id)}</button>`).join('')}</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;">${labs.map(l => `<button class="btn ${l.id === lab.id ? '' : 'secondary'}" data-lab="${l.id}">${escH(l.nome)}${l.cliente_id ? ' (cliente)' : ''} · ${attiviDi(l.id)}</button>`).join('')}</div>
     <div class="card" style="padding:6px 16px;">
       <p style="font-size:12px;color:var(--muted);margin:8px 0;">${escH(lab.nome)}: ${attiviDi(lab.id)} studi collegati su ${lab.licenze_studio} possibili (lo cambi in «Laboratori», colonna Licenze).</p>
       ${studi.map(s => { const c = trova(s.id), on = c && c.stato === 'attivo', ms = (medici || []).filter(m => m.studio_id === s.id);
@@ -855,9 +857,14 @@ async function renderStudiCliente(profilo){
   content.innerHTML = `<h1>I miei studi</h1>
     <p class="lead">Gli studi dentistici che lavorano con te. Li crei qui: si collegano subito al tuo laboratorio. Studi usati: <b>${CLIENTE.studi || 0} su ${CLIENTE.max_studi}</b>.</p>
     <div class="card"><h3 style="margin-top:0;font-size:13.5px;">+ Nuovo studio</h3>
+      <p style="font-size:12px;color:var(--muted);margin:-4px 0 8px;">Per uno studio che non usa ancora Nuovalab: lo crei tu e gli dai gli accessi.</p>
       <div class="form-grid"><div class="field"><label>Nome dello studio</label><input id="cs-nome" placeholder="Es. Studio dentistico Rossi"></div>
       <div class="field"><label>Email dello studio</label><input id="cs-email" type="email"></div><div></div></div>
       <button class="btn" id="cs-crea" style="margin-top:8px;">Crea studio</button><div class="msg" id="cs-msg"></div></div>
+    <div class="card"><h3 style="margin-top:0;font-size:13.5px;">🔗 Collega uno studio che usa già Nuovalab</h3>
+      <p style="font-size:12px;color:var(--muted);margin:-4px 0 8px;">Scrivi l'email dello studio: riceve la tua richiesta e, quando la accetta, lavorate insieme. I suoi accessi e i suoi medici li gestisce lui.</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;"><input id="cs-coll-email" type="email" placeholder="email dello studio" style="flex:1;min-width:220px;"><button class="btn secondary" id="cs-coll">Invia richiesta</button></div>
+      <div class="msg" id="cs-coll-msg"></div></div>
     <div id="cs-elenco"><p class="empty">Caricamento…</p></div>`;
   document.getElementById('cs-crea').onclick = async () => {
     const nome = document.getElementById('cs-nome').value.trim(), email = document.getElementById('cs-email').value.trim().toLowerCase();
@@ -865,22 +872,47 @@ async function renderStudiCliente(profilo){
     if((CLIENTE.studi || 0) >= CLIENTE.max_studi){ mostraMsg('cs-msg', `Hai raggiunto il numero di studi del tuo abbonamento (${CLIENTE.max_studi}). Contatta Nuovalab per aggiungerne.`, 'error'); return; }
     const { data: sigla } = await sb.rpc('sigla_libera', { p_nome: nome });
     const { error } = await sb.from('studi').insert({ nome, email, sigla, licenze_laboratorio: 1, attivo: true });
-    if(error){ mostraMsg('cs-msg', /licenz|Numero massimo/i.test(error.message) ? 'Hai raggiunto il numero di studi del tuo abbonamento.' : /unique|duplicate/i.test(error.message) ? 'Questa email è già usata da un altro studio.' : 'Errore: ' + error.message, 'error'); return; }
+    if(error && /unique|duplicate/i.test(error.message) && /email/i.test(error.message)){
+      // lo studio esiste già su Nuovalab: si chiede il collegamento
+      document.getElementById('cs-coll-email').value = email;
+      mostraMsg('cs-msg', 'Questo studio usa già Nuovalab: non va creato di nuovo. Invia la richiesta di collegamento qui sotto.', 'error');
+      document.getElementById('cs-coll-email').scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return;
+    }
+    if(error){ mostraMsg('cs-msg', /licenz|Numero massimo/i.test(error.message) ? 'Hai raggiunto il numero di studi del tuo abbonamento.' : /unique|duplicate/i.test(error.message) ? 'Nome o sigla già usati: prova un nome leggermente diverso.' : 'Errore: ' + error.message, 'error'); return; }
     CLIENTE.studi = (CLIENTE.studi || 0) + 1;
     renderStudiCliente(profilo);
   };
-  const [{ data: studi }, { data: medici }] = await Promise.all([
-    sb.from('studi').select('id, nome, sigla, email, attivo').order('nome'),
-    sb.from('medici').select('id, nome, email, studio_id, numero_iscrizione_completo, attivo').order('nome')]);
+  document.getElementById('cs-coll').onclick = async () => {
+    const email = document.getElementById('cs-coll-email').value.trim();
+    if(!email){ mostraMsg('cs-coll-msg', 'Scrivi l\'email dello studio.', 'error'); return; }
+    const { data: r, error } = await sb.rpc('richiedi_collegamento_studio', { p_email: email });
+    if(error){ mostraMsg('cs-coll-msg', 'Errore: ' + error.message, 'error'); return; }
+    if(String(r).startsWith('ok:')){ mostraMsg('cs-coll-msg', `Richiesta inviata a ${r.slice(3)}: diventa attiva quando lo studio la accetta.`, 'ok'); setTimeout(() => renderStudiCliente(profilo), 1500); }
+    else mostraMsg('cs-coll-msg', r, 'error');
+  };
+  const [{ data: tuttiStudi }, { data: medici }, { data: miei }] = await Promise.all([
+    sb.from('studi').select('id, nome, sigla, email, attivo, cliente_id').order('nome'),
+    sb.from('medici').select('id, nome, email, studio_id, numero_iscrizione_completo, attivo').eq('attivo', true).order('nome'),
+    sb.from('collegamenti').select('id, studio_id, stato').eq('laboratorio_id', profilo.laboratorio_id)]);
+  const collDi = id => (miei || []).find(c => c.studio_id === id);
+  // studi propri (creati dal laboratorio) e studi di altri con cui c'è un collegamento
+  const studi = (tuttiStudi || []).filter(s => s.cliente_id && collDi(s.id)?.stato !== 'rimosso');
+  const altri = (tuttiStudi || []).filter(s => !s.cliente_id && collDi(s.id) && collDi(s.id).stato !== 'rimosso');
   let utenti = [];
   try { utenti = (await chiamaFunzione({ action: 'utenti_mio_cliente' })).utenti || []; } catch(e){}
   const el = document.getElementById('cs-elenco');
-  if(!studi || !studi.length){ el.innerHTML = '<p class="empty">Nessuno studio ancora. Crea il primo qui sopra.</p>'; return; }
+  const altriHtml = altri.map(s => { const c = collDi(s.id), ms = (medici || []).filter(m => m.studio_id === s.id);
+    return `<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;"><h3 style="margin:0;font-size:15px;">${escH(s.nome)} <span style="color:var(--muted);font-size:12px;">${escH(s.sigla)} · studio che usa già Nuovalab</span></h3>
+      <span>${c.stato === 'attivo' ? '<span class="badge ok"><span class="dot"></span>Collegato</span>' : '<span class="badge off"><span class="dot"></span>Richiesta in attesa dello studio</span>'}
+      <button class="btn secondary" data-scollega="${c.id}" data-nome="${escH(s.nome)}" style="margin-left:6px;">${c.stato === 'attivo' ? 'Scollega' : 'Annulla richiesta'}</button></span></div>
+      ${c.stato === 'attivo' ? `<p style="font-size:12.5px;color:var(--muted);margin:8px 0 0;">Medici: ${ms.map(m => escH(m.nome)).join(', ') || '—'}. Accessi e medici li gestisce lo studio.</p>` : ''}</div>`; }).join('');
+  if(!studi.length && !altri.length){ el.innerHTML = '<p class="empty">Nessuno studio ancora. Crea il primo o collega uno studio qui sopra.</p>'; return; }
   const accessoDi = (campo, id) => utenti.filter(u => u[campo] === id);
   const rigaUtente = u => `<span style="display:inline-flex;gap:6px;align-items:center;margin:2px 8px 2px 0;font-size:12.5px;">🔑 ${escH(u.email)} ${u.attivo ? (u.primo_accesso ? '<span class="badge off">primo accesso da fare</span>' : '') : '<span class="badge off">disattivato</span>'}
      <button class="btn secondary" style="padding:3px 8px;font-size:12px;" data-reset="${u.id}" data-email="${escH(u.email)}">Nuova password</button>
      <button class="btn secondary" style="padding:3px 8px;font-size:12px;" data-attiva="${u.id}" data-stato="${u.attivo ? 'false' : 'true'}">${u.attivo ? 'Disattiva' : 'Riattiva'}</button></span>`;
-  el.innerHTML = studi.map(s => { const ms = (medici || []).filter(m => m.studio_id === s.id);
+  el.innerHTML = altriHtml + studi.map(s => { const ms = (medici || []).filter(m => m.studio_id === s.id);
     return `<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;"><h3 style="margin:0;font-size:15px;">${escH(s.nome)} <span style="color:var(--muted);font-size:12px;">${escH(s.sigla)} · ${escH(s.email)}</span></h3>
       ${accessoDi('studio_id', s.id).length ? '' : `<button class="btn secondary" data-acc-studio="${s.id}">+ Accesso per lo studio</button>`}</div>
       <div style="margin:6px 0 10px;">${accessoDi('studio_id', s.id).map(rigaUtente).join('')}</div>
@@ -898,6 +930,12 @@ async function renderStudiCliente(profilo){
     try { await chiamaFunzione({ ...corpo, email, password }); alert(`Accesso creato.\nComunica alla persona:\nindirizzo: ${location.origin}\nemail: ${email}\npassword iniziale: ${password}`); renderStudiCliente(profilo); }
     catch(e){ alert(e.message); }
   };
+  el.querySelectorAll('[data-scollega]').forEach(b => b.onclick = async () => {
+    if(!confirm(`Scollegare ${b.dataset.nome}? I lavori già fatti restano.`)) return;
+    const { error } = await sb.from('collegamenti').update({ stato: 'rimosso' }).eq('id', b.dataset.scollega);
+    if(error){ alert('Errore: ' + error.message); return; }
+    renderStudiCliente(profilo);
+  });
   el.querySelectorAll('[data-acc-studio]').forEach(b => b.onclick = () => chiediAccesso({ action: 'accesso_studio', ruolo: 'STUDIO', studio_id: b.dataset.accStudio }, studi.find(s => s.id === b.dataset.accStudio)?.email));
   el.querySelectorAll('[data-acc-medico]').forEach(b => b.onclick = () => chiediAccesso({ action: 'accesso_studio', ruolo: 'MEDICO', medico_id: b.dataset.accMedico }, b.dataset.email));
   el.querySelectorAll('[data-reset]').forEach(b => b.onclick = async () => {

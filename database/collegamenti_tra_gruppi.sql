@@ -1,0 +1,5 @@
+-- Uno studio può lavorare con più laboratori, anche di gruppi diversi (To Smile e clienti).
+-- Ognuno vede solo i propri dati. Tra gruppi diversi il collegamento diventa attivo solo quando
+-- l'altra parte accetta (o lo attiva l'admin). Funzioni: collegati, studio_collegato_a_me, lab_collegato_a_me,
+-- lab_del_mio_gruppo (aggiornata), richiedi_collegamento_studio, stato_cliente (studi = collegamenti attivi).
+-- (testo completo applicato con la migrazione "collegamenti_tra_gruppi")
