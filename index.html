@@ -2962,9 +2962,56 @@ async function renderConsuntivo(profilo){
         ${righe.map(r => `<tr${r.q>1?' style="background:#fffbef;"':''}><td>${r.id}</td><td>${r.tipo_macro} › ${r.tipo_micro}</td><td>${(r.denti||[]).join(', ') || '—'}</td><td>${r.data_in_consegna}</td><td>${r.stato_studio==='consegnato'?'✓':'—'}</td><td style="text-align:right;${r.q>1?'font-weight:700;':''}">${r.q}</td><td style="text-align:right;">${r.prezzo!=null?eur(r.prezzo):'—'}</td><td style="text-align:right;font-weight:600;">${r.tot!=null?eur(r.tot):'—'}</td></tr>`).join('')}
         ${righe.length===0?`<tr><td colspan="8" class="empty">Nessun lavoro nel periodo.</td></tr>`:''}
       </tbody></table></div>
-      ${righe.length>0 ? `<p style="text-align:right;margin-top:10px;"><span style="color:var(--muted);margin-right:18px;">${righe.length} ${righe.length===1?'lavoro':'lavori'} · ${totElementi} ${totElementi===1?'elemento':'elementi'}</span><strong>Totale: ${eur(totale)}</strong></p>` : ''}
+      ${righe.length>0 ? `<p style="text-align:right;margin-top:10px;"><span style="color:var(--muted);margin-right:18px;">${righe.length} ${righe.length===1?'lavoro':'lavori'} · ${totElementi} ${totElementi===1?'elemento':'elementi'}</span><strong>Totale: ${eur(totale)}</strong></p>
+      <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-top:8px;"><button class="btn secondary" id="cs-xlsx">⬇ Esporta Excel</button><button class="btn secondary" id="cs-pdf">⬇ Esporta PDF</button></div>` : ''}
     `;
+    if(righe.length>0){
+      const sel = document.getElementById('cs-studio');
+      const dati = { studio: sel.options[sel.selectedIndex].text, da, a, righe, totale, totElementi };
+      const esporta = async (btn, tipo) => { const t = btn.textContent; btn.disabled = true; btn.textContent = 'Preparo…';
+        try { await esportaConsuntivo(tipo, dati); } catch(e){ alert('Esportazione non riuscita: ' + e.message); } finally { btn.disabled = false; btn.textContent = t; } };
+      document.getElementById('cs-xlsx').onclick = e => esporta(e.currentTarget, 'xlsx');
+      document.getElementById('cs-pdf').onclick = e => esporta(e.currentTarget, 'pdf');
+    }
   };
+}
+
+/* Esportazione del consuntivo in Excel o PDF: si fa tutto nel browser con i dati già a schermo (nessun dato modificato). */
+const caricaScript = src => new Promise((ok, ko) => {
+  if (document.querySelector(`script[src="${src}"]`)) return ok();
+  const s = document.createElement('script'); s.src = src; s.onload = ok; s.onerror = () => ko(new Error('libreria non caricata, controlla la connessione')); document.head.appendChild(s);
+});
+async function esportaConsuntivo(tipo, d){
+  const dIt = x => x ? x.split('-').reverse().join('/') : '';
+  const nomeFile = `Consuntivo ${d.studio} ${d.da} ${d.a}`.replace(/[^\w\- àèéìòù]/gi, '').replace(/\s+/g, '_');
+  const intest = ['ID', 'Lavoro', 'Denti', 'Data uscita', 'Confermato', 'Q.tà', 'Prezzo unit. (€)', 'Totale (€)'];
+  const lavoro = r => `${r.tipo_macro} › ${r.tipo_micro}`;
+  if (tipo === 'xlsx') {
+    await caricaScript('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js');
+    const aoa = [['Consuntivo laboratorio'], ['Studio', d.studio], ['Periodo', `dal ${dIt(d.da)} al ${dIt(d.a)}`], [], intest,
+      ...d.righe.map(r => [r.id, lavoro(r), (r.denti||[]).join(', '), dIt(r.data_in_consegna), r.stato_studio==='consegnato' ? 'Sì' : 'No', r.q, r.prezzo ?? null, r.tot ?? null]),
+      [], ['', `${d.righe.length} lavori`, '', '', '', d.totElementi, 'Totale', d.totale]];
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    const fmt = '#,##0.00 "€"', primaRiga = 5, ultima = primaRiga + d.righe.length + 1;
+    for (let r = primaRiga; r <= ultima; r++) ['G', 'H'].forEach(c => { const cell = ws[c + (r + 1)]; if (cell && typeof cell.v === 'number') cell.z = fmt; });
+    ws['!cols'] = [{ wch: 10 }, { wch: 40 }, { wch: 18 }, { wch: 12 }, { wch: 11 }, { wch: 7 }, { wch: 15 }, { wch: 14 }];
+    const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Consuntivo');
+    XLSX.writeFile(wb, nomeFile + '.xlsx');
+  } else {
+    await caricaScript('https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js');
+    await caricaScript('https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js');
+    const doc = new window.jspdf.jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+    const eur = v => v == null ? '—' : '€ ' + v.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    doc.setFontSize(16); doc.text('Consuntivo laboratorio', 14, 16);
+    doc.setFontSize(10); doc.text(`Studio: ${d.studio}    Periodo: dal ${dIt(d.da)} al ${dIt(d.a)}`, 14, 23);
+    doc.autoTable({ startY: 28, head: [['ID', 'Lavoro', 'Denti', 'Data uscita', 'Confermato', 'Q.tà', 'Prezzo unit.', 'Totale']],
+      body: d.righe.map(r => [r.id, lavoro(r).replace('›', '>'), (r.denti||[]).join(', ') || '—', dIt(r.data_in_consegna), r.stato_studio==='consegnato' ? 'Sì' : '—', r.q, eur(r.prezzo), eur(r.tot)]),
+      foot: [['', `${d.righe.length} lavori`, '', '', '', d.totElementi, 'Totale', eur(d.totale)]],
+      styles: { fontSize: 9 }, headStyles: { fillColor: [42, 124, 125] }, footStyles: { fillColor: [240, 240, 236], textColor: 20, fontStyle: 'bold' },
+      columnStyles: { 5: { halign: 'right' }, 6: { halign: 'right' }, 7: { halign: 'right' } },
+      didDrawPage: () => { doc.setFontSize(8); doc.text(`Pagina ${doc.getNumberOfPages()}`, doc.internal.pageSize.getWidth() - 14, doc.internal.pageSize.getHeight() - 8, { align: 'right' }); } });
+    doc.save(nomeFile + '.pdf');
+  }
 }
 
 /* ---------- MEDICO: I MIEI PAZIENTI (con firma) ---------- */
