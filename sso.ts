@@ -106,6 +106,11 @@ async function applicaLivello(id: string, t: Ticket, login: boolean, email: stri
         studi.push({ studio_id: data.studio_id, medico_id: data.id });
       }
     }
+    // medico: gli studi che ha già in Nuovalab restano (anche quelli aggiunti qui dentro): dal pannello si aggiunge soltanto
+    if (L === "MEDICO") {
+      const { data: gia } = await admin.from("profili_studi").select("studio_id, medico_id").eq("profilo_id", id);
+      for (const g of gia || []) if (g.studio_id && !studi.some((x) => x.studio_id === g.studio_id)) studi.push({ studio_id: g.studio_id, medico_id: g.medico_id });
+    }
     studi = studi.filter((x, i) => studi.findIndex((y) => y.studio_id === x.studio_id) === i); // uno per studio
     if (L === "STUDIO") row.studio_id = studi.some((x) => x.studio_id === p?.studio_id) ? p!.studio_id : studi[0].studio_id;
     else row.medico_id = studi.some((x) => x.medico_id === p?.medico_id) ? p!.medico_id : studi[0].medico_id;
@@ -114,12 +119,12 @@ async function applicaLivello(id: string, t: Ticket, login: boolean, email: stri
   const { error } = p ? await admin.from("profili").update(row).eq("id", id)
     : await admin.from("profili").insert({ id, ...row, deve_cambiare_password: false });
   if (error) { console.error("profilo", error.message); return { ok: false, motivo: error.message }; }
-  // il pannello accessi comanda: i medici tolti alla persona non sono più attivi in Nuovalab (si disattivano, non si cancellano),
-  // quelli assegnati tornano attivi
+  // studi: il pannello accessi comanda, i medici tolti non sono più attivi (si disattivano, non si cancellano).
+  // medici: non si disattiva mai niente (gli studi restano, prescrizioni e certificazioni intatte); quelli assegnati tornano attivi
   const { data: vecchi } = await admin.from("profili_studi").select("medico_id").eq("profilo_id", id);
   const prima = new Set([...(vecchi || []).map((x) => x.medico_id), p?.medico_id].filter(Boolean) as string[]);
   const ora = new Set(studi.map((x) => x.medico_id).filter(Boolean) as string[]);
-  const tolti = [...prima].filter((m) => !ora.has(m));
+  const tolti = L === "MEDICO" ? [] : [...prima].filter((m) => !ora.has(m));
   if (tolti.length) await admin.from("medici").update({ attivo: false }).in("id", tolti);
   if (ora.size) await admin.from("medici").update({ attivo: true }).in("id", [...ora]);
   await admin.from("profili_studi").delete().eq("profilo_id", id);
