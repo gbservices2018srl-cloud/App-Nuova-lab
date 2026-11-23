@@ -24,7 +24,7 @@ const json = (body: unknown, status = 200) => new Response(JSON.stringify(body),
 
 type Ticket = { purpose: "login" | "revoke" | "catalog" | "sync" | "sedi"; sedi?: Sede[]; email: string; firstName?: string; lastName?: string;
   role?: "user" | "admin"; livello?: string | null; ente?: string | null; enti?: string[]; oldEmail?: string | null; ssoId?: string | null;
-  cf?: string | null; alboProvincia?: string | null; alboNumero?: string | null };
+  cf?: string | null; alboProvincia?: string | null; alboNumero?: string | null; sediAnagrafica?: string[] | null };
 type Sede = { id: string; nome: string; sigla: string; email: string; indirizzo: string; societa: string; riuniti: number; attiva: boolean };
 const normSede = (s: unknown) => String(s || "").toLowerCase().replace(/to\s*smile|studio|sede|ambulatorio/g, "").replace(/[^a-z0-9]/g, "");
 const spiega = (m: string) => /duplicate|unique/i.test(m) ? "sigla o email già usate da un altro studio" : m;
@@ -106,10 +106,26 @@ async function applicaLivello(id: string, t: Ticket, login: boolean, email: stri
         studi.push({ studio_id: data.studio_id, medico_id: data.id });
       }
     }
-    // medico: gli studi che ha già in Nuovalab restano (anche quelli aggiunti qui dentro): dal pannello si aggiunge soltanto
+    // medico: gli studi che ha già in Nuovalab restano (anche quelli aggiunti qui dentro)...
     if (L === "MEDICO") {
       const { data: gia } = await admin.from("profili_studi").select("studio_id, medico_id").eq("profilo_id", id);
       for (const g of gia || []) if (g.studio_id && !studi.some((x) => x.studio_id === g.studio_id)) studi.push({ studio_id: g.studio_id, medico_id: g.medico_id });
+      // ...tranne gli studi To Smile delle sedi che non ha più in Gestione accessi (l'anagrafica comanda).
+      // Uno studio tolto resta finché il medico ha lì prescrizioni da firmare. Il medico non si disattiva: prescrizioni e certificazioni intatte.
+      if (Array.isArray(t.sediAnagrafica) && t.sediAnagrafica.length) {
+        const mie = new Set(t.sediAnagrafica.map(String));
+        const { data: info } = await admin.from("studi").select("id, central_id, cliente_id").in("id", studi.map((x) => x.studio_id));
+        const fuori = new Set((info || []).filter((s) => s.central_id && !s.cliente_id && !mie.has(String(s.central_id))).map((s) => s.id));
+        const restano: typeof studi = [];
+        for (const x of studi) {
+          if (!fuori.has(x.studio_id)) { restano.push(x); continue; }
+          if (!x.medico_id) continue;
+          const { data: lav, error: eL } = await admin.from("lavorazioni").select("id, firme(id)").eq("studio_id", x.studio_id).eq("medico_id", x.medico_id);
+          // deno-lint-ignore no-explicit-any
+          if (eL || (lav || []).some((l: any) => !(l.firme && l.firme.length))) restano.push(x); // ha prescrizioni da firmare: resta
+        }
+        if (restano.length) studi = restano; // mai senza nessuno studio
+      }
     }
     studi = studi.filter((x, i) => studi.findIndex((y) => y.studio_id === x.studio_id) === i); // uno per studio
     if (L === "STUDIO") row.studio_id = studi.some((x) => x.studio_id === p?.studio_id) ? p!.studio_id : studi[0].studio_id;
