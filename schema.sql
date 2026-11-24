@@ -340,10 +340,13 @@ create table firme (
 );
 
 -- Una pratica è "archiviata" quando consegnata E firmata
-create view lavorazioni_archiviate as
+create view lavorazioni_archiviate with (security_invoker = true) as
   select l.* from lavorazioni l
   where l.stato_studio = 'consegnato'
     and exists (select 1 from firme f where f.lavorazione_id = l.id);
+-- 24/11/2026: la vista rispetta le regole di chi la legge (prima le saltava ed era aperta anche senza accesso)
+revoke all on lavorazioni_archiviate from anon;
+revoke insert, update, delete, truncate, references, trigger on lavorazioni_archiviate from authenticated;
 
 -- ============================================================
 -- 14. CHAT — canale generale studio + canale diretto medico, isolati per laboratorio
